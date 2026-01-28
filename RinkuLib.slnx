@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="RinkuLib.Tests/RinkuLib.Tests.csproj" Id="e8d6c7ee-7551-4837-80ad-b6033bc067c0" />
+  <Project Path="RinkuLib/RinkuLib.csproj" />
+</Solution>

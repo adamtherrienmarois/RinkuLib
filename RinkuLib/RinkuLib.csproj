@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	  <PackageId>Rinku</PackageId>
+	  <Version>0.0.1</Version>
+	  <Author>Adam</Author>
+	  <Product>Rinku</Product>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+	<DefineConstants>$(DefineConstants);USE_VERBOSE_GENERATOR</DefineConstants>
+  </PropertyGroup>
+</Project>

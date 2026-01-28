@@ -1,0 +1,80 @@
+﻿namespace RinkuLib.Queries;
+
+/// <summary>
+/// A registry that manages the metadata and caching state for all variables and special handlers 
+/// associated with a query.
+/// </summary>
+/// <remarks>
+/// This class serves as the central state provider for the query's parameter lifecycle. It tracks 
+/// which parameters have resolved their database-specific metadata and provides an efficient 
+/// mechanism to determine if the query requires further metadata resolution based on the 
+/// current execution's variables.
+/// </remarks>
+public sealed class QueryParameters : IDbParamCache {
+    /// <summary> The count of standard database parameters. </summary>
+    public int NbVariables;
+    /// <summary> The total count of all parameters, including special handlers. </summary>
+    public int Total;
+    internal DbParamInfo[] _variablesInfo;
+    public ReadOnlySpan<DbParamInfo> VariablesInfo => _variablesInfo;
+    internal SpecialHandler[] _specialHandlers;
+    public ReadOnlySpan<SpecialHandler> SpecialHandlers => _specialHandlers;
+    internal int NbNonCached;
+    internal int[] _nonCachedIndexes;
+    public QueryParameters(int StartVariables, int StartSpecialHandlers, SpecialHandler[] specialHandlers) {
+        NbVariables = StartSpecialHandlers - StartVariables;
+        _variablesInfo = new DbParamInfo[NbVariables];
+        for (int i = 0; i < NbVariables; i++)
+            _variablesInfo[i] = InferedDbParamCache.Instance;
+        _specialHandlers = specialHandlers;
+        Total = NbVariables + specialHandlers.Length;
+        _nonCachedIndexes = new int[Total];
+        NbNonCached = Total;
+        for (int i = 0; i < Total; i++)
+            _nonCachedIndexes[i] = i;
+    }
+    public bool IsCached(int ind) 
+        => ind < 0 || ind >= Total || (ind >= NbVariables
+            ? _specialHandlers[ind - NbVariables].IsCached
+            : _variablesInfo[ind].IsCached);
+    public bool UpdateCache(int ind, DbParamInfo info) {
+        if (ind < 0 || ind >= NbVariables)
+            return false;
+        _variablesInfo[ind] = info;
+        return true;
+    }
+    public bool UpdateSpecialHandlers<T>(T infoGetter) where T : IDbParamInfoGetter {
+        for (int i = 0; i < _specialHandlers.Length; i++) {
+            var h = _specialHandlers[i];
+            if (h.IsCached)
+                continue;
+            h.UpdateCache(infoGetter);
+        }
+        return true;
+    }
+    public void UpdateNbCached() {
+        var total = Total;
+        Span<int> nonCachedIndexes = total > 256 ? new int[total] : stackalloc int[total];
+        total = 0;
+        for (int i = 0; i < NbVariables; i++)
+            if (!_variablesInfo[i].IsCached)
+                nonCachedIndexes[total++] = i;
+        for (int i = 0; i < _specialHandlers.Length; i++)
+            if (!_specialHandlers[i].IsCached)
+                nonCachedIndexes[total++] = i + NbVariables;
+        _nonCachedIndexes = nonCachedIndexes[..total].ToArray();
+        NbNonCached = total;
+    }
+    /// <summary>
+    /// Evaluates the provided variables to determine if any non-cached parameter 
+    /// currently possesses data that requires metadata resolution.
+    /// </summary>
+    public bool NeedToCache(object?[] variables) {
+        if (NbNonCached == 0)
+            return false;
+        for (int i = 0; i < _nonCachedIndexes.Length; i++)
+            if (variables[_nonCachedIndexes[i]] is not null)
+                return true;
+        return false;
+    }
+}

@@ -11,20 +11,20 @@ The library is designed as two independent, highly customizable parts—one for 
 ```csharp
 // 1. INTERPRETATION: The blueprint (SQL Generation Part)
 // Define the template once; the structure is analyzed and cached.
-var sql = "SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > ?@MinAge AND Cat = ?@Category";
-var query = QueryCommand.New(sql);
+string sql = "SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > ?@MinAge AND Cat = ?@Category";
+QueryCommand query = new QueryCommand(sql);
 
 // 2. STATE DEFINITION: The transient builder (State Data)
 // Create a builder for a specific database trip.
-var builder = query.StartBuilder();
+QueryBuilder builder = query.StartBuilder();
 builder.Use("@Grp", "Admin");    // Required: Fails if missing.
 builder.Use("@MinAge", 18);      // Optional: Used, so segment is preserved.
                                  // @Category: NOT used, so segment is pruned.
 
 // 3. EXECUTION: Unified process (SQL Generation + Type Parsing Negotiation)
 // RinkuLib generates the final SQL and fetches the compiled parser delegate.
-using var cnn = GetConnection();
-var users = builder.QueryMultiple<User>(cnn);
+using DbConnection cnn = GetConnection();
+IEnumerable<User> users = builder.QueryMultiple<User>(cnn);
 
 // Resulting SQL: SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > @MinAge
 ```

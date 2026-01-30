@@ -1,7 +1,6 @@
 ﻿using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using RinkuLib.Commands;
-using RinkuLib.DbParsing;
 using RinkuLib.Queries;
 using Xunit;
 
@@ -20,7 +19,7 @@ public class CompleteTests {
     }
     [Fact]
     public void Example1_StaticQuery() {
-        var query = QueryCommand.New("SELECT ID, Username, Email FROM Users WHERE IsActive = @Active", false);
+        var query = new QueryCommand("SELECT ID, Username, Email FROM Users WHERE IsActive = @Active", false);
         var builder = query.StartBuilder();
         builder.Use("@Active", true);
         using var cnn = GetDbCnn();
@@ -39,7 +38,7 @@ public class CompleteTests {
     }
     [Fact]
     public async Task Example1_StaticQuery_Async() {
-        var query = QueryCommand.New("SELECT ID, Username, Email FROM Users WHERE IsActive = @Active", false);
+        var query = new QueryCommand("SELECT ID, Username, Email FROM Users WHERE IsActive = @Active");
         var builder = query.StartBuilder();
         builder.Use("@Active", true);
         using var cnn = GetDbCnn();

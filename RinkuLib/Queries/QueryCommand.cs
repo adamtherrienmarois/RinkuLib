@@ -146,13 +146,21 @@ public class QueryCommand : IQueryCommand {
     private bool UpdateCache<T>(T infoGetter) where T : IDbParamInfoGetter {
         foreach (var item in infoGetter.EnumerateParameters()) {
             var ind = Mapper.GetIndex(item.Key) - StartVariables;
-            if (Parameters.IsCached(ind))
+            if (ind < 0 || Parameters.IsCached(ind))
                 continue;
             Parameters.UpdateCache(ind, infoGetter.MakeInfoAt(item.Value));
         }
         Parameters.UpdateSpecialHandlers(infoGetter);
         Parameters.UpdateNbCached();
         return true;
+    }
+    public bool UpdateParamCache(string paramName, DbParamInfo paramInfo) {
+        var ind = Mapper.GetIndex(paramName) - StartVariables;
+        if (ind < 0)
+            return false;
+        Parameters.UpdateCache(ind, paramInfo);
+        return true;
+
     }
     /// <summary>
     /// Synchronizes the database command with the current state of the entire query context.

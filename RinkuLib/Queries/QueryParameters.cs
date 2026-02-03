@@ -41,6 +41,23 @@ public sealed class QueryParameters : IDbParamCache {
         if (ind < 0 || ind >= NbVariables)
             return false;
         _variablesInfo[ind] = info;
+        if (!info.IsCached) {
+            var oldArray = _nonCachedIndexes;
+            int len = oldArray.Length;
+            var nbNon = new int[len + 1];
+            int i = 0;
+            while (i < len && oldArray[i] < ind) {
+                nbNon[i] = oldArray[i];
+                i++;
+            }
+            nbNon[i] = ind;
+            while (i < len) {
+                nbNon[i + 1] = oldArray[i];
+                i++;
+            }
+            Interlocked.Exchange(ref _nonCachedIndexes, nbNon);
+            Interlocked.Exchange(ref NbNonCached, nbNon.Length);
+        }
         return true;
     }
     public bool UpdateSpecialHandlers<T>(T infoGetter) where T : IDbParamInfoGetter {

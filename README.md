@@ -55,7 +55,7 @@ The engine analyzes your SQL to create a **Structural Blueprint**, fragmenting t
 * **Conditional Markers:** Uses `?@Var` and `/*...*/` to define optional segments—from parameters to entire clauses—ensuring valid SQL syntax after pruning.
 * **Structural Handlers:** Special suffixes like `_N` (Numeric), `_X` (Collection spreading), and `_R` (Raw injection) to adjust the query's physical structure at runtime.
 
-👉 **[Read the Full Templating & Syntax Documentation](TemplatingSyntaxDoc.md)**
+👉 **[Read the Full Templating Syntax Documentation](TemplatingSyntaxDoc.md)**
 
 ---
 
@@ -66,5 +66,151 @@ A **Tree of Responsibility** that reconciles the database schema with your C# ty
 * **Schema Negotiation:** Dynamically maps database columns to complex types, handling non-1-to-1 relationships and varied data shapes without manual configuration.
 * **Decomposable Process:** Every step of the mapping is a "plug-in" point, allowing you to inject custom logic into specific branches or leaf-nodes of the object graph.
 
-👉 **[Read the Full Mapping Engine & Registry Documentation](MappingEngineDoc.md)**
+👉 **[Read the Full Mapping Engine Documentation](MappingEngineDoc.md)**
 
+---
+
+## Creating a QueryCommand
+
+The `QueryCommand` is a long-lived orchestrator. You define it once for a specific SQL template, and it becomes the host for all structural and performance logic.
+
+```csharp
+// Parsing happens once at instantiation
+var userCmd = new QueryCommand("SELECT * FROM Users WHERE ID = ?@id AND Age > ?@minAge");
+
+```
+
+When you create the command, it processes the template and generates optimized internal structures. It is designed for versatility; by using optional markers (`?@`), this single instance can generate different SQL permutations based on the data provided.
+
+The `QueryCommand` acts as a container for the results of the template parsing. It stores the following key elements:
+
+* **`Mapper`:** A specialized indexer that maps parameter names (like `@id`) to a specific integer index. While the command uses indices internally, the Mapper allows external tools like the `QueryBuilder` to place data into the correct slots of the state array.
+* **`QueryText`:** This is the finalized blueprint of your SQL. It contains the logic for building the query string, where conditions refer directly to indices corresponding with `Mapper`.
+* **`QueryParameters`:** A collection of `DbParamInfo` objects, in order matching to `Mapper`, which store the metadata required to create `DbParameter` objects.
+* **Parser Cache:** A specialized cache that stores compiled IL-functions for mapping database results to C# types based on the returned schema.
+
+👉 **[Read the Full QueryCommand Documentation](QueryCommandDoc.md)**
+
+---
+## State Initialization: The Builders
+
+After defining a `QueryCommand`, you must initialize its **State**. This transient phase determines which optional SQL segments are preserved and provides the actual data for parameters.
+
+RinkuLib offers two builder types via `StartBuilder()` extensions to handle different execution patterns:
+
+---
+
+### 1. `QueryBuilder` (Transient)
+
+Ideal for **single-trip queries**. It is a lightweight state container used to generate SQL and execute a command once.
+
+* **Use Case:** Standard API calls or one-off fetches.
+* **Logic:** Created, populated, and executed in a single scope.
+
+```csharp
+var builder = userCmd.StartBuilder();
+builder.Use("@id", 10);
+var user = builder.QueryFirst<User>(cnn);
+```
+
+### 2. `QueryBuilderCommand<T>` (Managed)
+
+Designed for **repetitive execution** and high-performance loops. It wraps an existing `IDbCommand` to minimize object allocation.
+
+* **Use Case:** Batch processing or importing large datasets.
+* **Logic:** Maintains a persistent `IDbCommand` while you update state/parameters between executions.
+
+```csharp
+using var sqlCmd = new SqlCommand();
+var builder = userCmd.StartBuilder(sqlCmd);
+
+foreach(var val in dataList) {
+    builder.Use("@val", val);
+    builder.Execute(cnn); // Reuses the internal command object
+}
+```
+
+---
+## Execution via QueryBuilder
+
+The `QueryBuilder` extensions handle the entire database "trip." They synthesize the final SQL from your template, synchronize parameters, and execute the command in one step.
+
+### 1. The Core Operations
+
+RinkuLib provides three primary operations, available in both **Synchronous** and **Asynchronous** versions.
+
+| Goal | Method | Sync Return | Async Return |
+| --- | --- | --- | --- |
+| **Update/Delete/Insert** | `ExecuteQuery` | `int` | `Task<int>` |
+| **Fetch Single Row** | `QuerySingle<T>` | `T?` | `Task<T?>` |
+| **Stream Multiple Rows** | `QueryMultiple<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
+
+---
+
+### 2. Standard vs. Manual Mapping
+
+The query methods come in two distinct flavors depending on how you want to handle the data transformation:
+
+* **Automatic Mapping (Standard):** When you call these methods without a function parameter, RinkuLib uses its **Mapping Engine** to negotiate with the database schema. It dynamically generates a high-speed IL-parser (via `GetParser`) that matches the returned columns to your object properties.
+* **Custom Mapping & Behavior:** You can bypass the automatic engine by providing a specific **`Func<DbDataReader, T>`**. This is a "plug-in" point where you define the construction logic. These overloads also allow you to specify a **`CommandBehavior`** (e.g., `SequentialAccess` or `SingleResult`) to fine-tune how the reader streams data.
+
+```csharp
+// Standard: Mapping Engine negotiates the parser automatically
+var user = builder.QuerySingle<User>(cnn);
+
+// Manual: You provide the func; Mapping Engine is bypassed
+var name = builder.QuerySingle(cnn, reader => reader.GetString(0), CommandBehavior.SingleResult);
+
+```
+
+---
+
+### 3. Shared Execution Parameters
+
+All builder methods use a consistent signature for managing the database context:
+
+* **`cnn`**: The `DbConnection` (or `IDbConnection`) to use.
+* **`transaction`**: *(Optional)* The transaction to associate with the command.
+* **`timeout`**: *(Optional)* Overrides the default command timeout.
+* **`ct`**: *(Async only)* A `CancellationToken` for the task lifecycle.
+
+---
+
+## Direct Execution via DbCommand
+
+These extensions transform a standard `DbCommand` into a high-speed data mapper. They are used when you have a pre-configured command and need explicit control over how data is retrieved and how the command object is managed.
+
+### 1. Execution & Mapping Methods
+
+| Goal | Method | Sync Return | Async Return |
+| --- | --- | --- | --- |
+| **Update/Delete/Insert** | `ExecuteQuery` | `int` | `Task<int>` |
+| **Fetch Single Row** | `QuerySingle<T>` | `T?` | `Task<T?>` |
+| **Stream Multiple Rows** | `QueryMultiple<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
+
+---
+
+### 2. Extension Parameters
+
+Every method in the table above utilizes a consistent set of parameters. All are optional and default to `null` or a library-standard behavior.
+
+* **`parser`**:
+    * Provide a **`Func<DbDataReader, T>`** to use manual construction logic.
+    * If omitted (`null`), RinkuLib provides a negotiated IL-delegate via the internal mapping engine.
+* **`cache`**: Optional hooks triggered immediately **after** execution (post-`ExecuteReader` or `ExecuteNonQuery`).
+    * **`ICache` / `ICacheAsync`**: Receives the `DbCommand`. The `Async` version is awaited.
+    * **`IParserCache` / `IParserCacheAsync`**: Receives the `DbDataReader`, the `DbCommand`, and the final `Func` parser (provided or negotiated). The `Async` version is awaited.
+* **`behavior`**: Sets the **`CommandBehavior`** (e.g., `SequentialAccess` or `SingleRow`).
+* **`disposeCommand`**: A boolean (defaults to **`true`**).
+    * If **`true`**: The command is automatically disposed after execution or when the result stream is exhausted.
+    * If **`false`**: The command is not disposed, allowing it to be accessed or reused after the call.
+* **`ct`**: *(Async only)* A `CancellationToken` for the task lifecycle.
+
+---
+
+### 3. Asynchronous Mapping Alternatives (`ParseAsync`)
+
+For specialized scenarios where the mapping process itself is I/O-bound, RinkuLib provides `ParseAsync` variants. These allow you to `await` logic inside the mapper for every row processed.
+
+* **Methods**: `QuerySingleParseAsync<T>` and `QueryMultipleParseAsync<T>`.
+* **Signature**: These require a **`Func<DbDataReader, Task<T>>`** instead of the standard **`Func<DbDataReader, T>`**.

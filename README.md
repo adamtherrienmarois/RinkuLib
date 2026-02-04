@@ -4,6 +4,7 @@ RinkuLib is a micro-ORM built on top of **ADO.NET**. It separate any SQL constru
 The library is designed as two independent, highly customizable parts
 * SQL command generation with flexible templating engine
 * Complex type parsing with negociation phase to use the most appropriate construction
+
 (It's not fucking vibe coded)
 
 ---
@@ -98,9 +99,7 @@ To make a call to the DB, you need a **state**, this is where the builders are u
 
 There are two types of builder via `StartBuilder()` extensions for different needs.
 
----
-
-### 1. `QueryBuilder` (Single-trip queries)
+### `QueryBuilder` (Single-trip queries)
 
 **Use Case:** Most of the time when you dont want to keep a `DbCommand` alive.
 
@@ -110,7 +109,7 @@ builder.Use("@id", 10);
 var user = builder.QueryFirst<User>(cnn);
 ```
 
-### 2. `QueryBuilderCommand<T>` (Multiple call)
+### `QueryBuilderCommand<T>` (Multiple call)
 **Use Case:** Mainly for batch processing when you dont want to remake a `DbCommand` each time.
 
 ```csharp
@@ -146,13 +145,10 @@ builder.Use([("@Name", "John"), ("IsActive", true)]);
 ```
 
 ---
-## Execution via QueryBuilder
+## Execution: QueryX via QueryBuilder
 
-The `QueryBuilder` extensions handle the entire database "trip." They synthesize the final SQL from your template, synchronize parameters, and execute the command in one step.
-
-### 1. The Core Operations
-
-RinkuLib provides three primary operations, available in both **Synchronous** and **Asynchronous** versions.
+The `QueryX` extension methods handle the entire database "trip." They generate the final SQL from your template, synchronize parameters, and execute the command in one step.
+`QueryX` comes in three primary operations, available in both **Synchronous** and **Asynchronous** versions.
 
 | Goal | Method | Sync Return | Async Return |
 | --- | --- | --- | --- |
@@ -160,22 +156,15 @@ RinkuLib provides three primary operations, available in both **Synchronous** an
 | **Fetch Single Row** | `QuerySingle<T>` | `T?` | `Task<T?>` |
 | **Stream Multiple Rows** | `QueryMultiple<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
 
----
-
-### 2. Standard vs. Manual Mapping
-
-The query methods come in two distinct flavors depending on how you want to handle the data transformation:
-
-* **Automatic Mapping:** When you call these methods, RinkuLib uses its **Mapping Engine** to negotiate with the database schema. It dynamically generates a high-speed IL-parser (via `GetParser`) that matches the returned columns to your object properties.
-
 ```csharp
-// Standard: Mapping Engine negotiates the parser automatically
 var user = builder.QuerySingle<User>(cnn);
+var users = builder.QueryMultiple<User>(cnn);
+var (user, supervisor) = await builder.QuerySingleAsync<(User, Supervisor)>(cnn);
+var cboItems = await builder.QueryMultipleAsync<KeyValuePair<int, string>>(cnn, null, null, ct);
+var id = builder.QuerySingle<int>(cnn);
+var names = await builder.QueryMultipleAsync<string>(cnn);
+var nbAffected = builder.ExecuteQuery(cnn, trans);
 ```
-
----
-
-### 3. Shared Execution Parameters
 
 All builder methods use a consistent signature for managing the database context:
 
@@ -183,18 +172,16 @@ All builder methods use a consistent signature for managing the database context
 * **`transaction`**: *(Optional)* The transaction to associate with the command.
 * **`timeout`**: *(Optional)* Overrides the default command timeout.
 * **`ct`**: *(Async only)* A `CancellationToken` for the task lifecycle.
----
 
-### 4. `QueryBuilderCommand`
-The equivalent methods for `QueryBuilderCommand` does not take any parameters (except the `ct`), and does not reconfigure the associated `DbCommand`.
+The equivalent methods for `QueryBuilderCommand` does not take any parameters (except the `ct`), and does not reconfigure the associated `DbCommand` since managed by the builder.
 
 ---
 
 ## Direct Execution via DbCommand
 
-These extensions transform a standard `DbCommand` into a high-speed data mapper. They are used when you have a pre-configured command and need explicit control over how data is retrieved and how the command object is managed.
+In the spirit of modularity, the mapping engine is accesible using any `DbCommand` instance.
 
-### 1. Execution & Mapping Methods
+The same extensions are provided directly on the the `DbCommand` (there is also support for `IDbCommand`)
 
 | Goal | Method | Sync Return | Async Return |
 | --- | --- | --- | --- |
@@ -202,12 +189,9 @@ These extensions transform a standard `DbCommand` into a high-speed data mapper.
 | **Fetch Single Row** | `QuerySingle<T>` | `T?` | `Task<T?>` |
 | **Stream Multiple Rows** | `QueryMultiple<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
 
----
+The parameters are a bit different since the `DbCommand` should allready been properly made.
 
-### 2. Extension Parameters
-
-Every method in the table above utilizes a consistent set of parameters.
 * **`disposeCommand`**: A boolean (defaults to **`true`**).
-    * If **`true`**: The command is automatically disposed after execution or when the result stream is exhausted.
-    * If **`false`**: The command is not disposed, allowing it to be accessed or reused after the call.
+    * If **`true`**: The command is automatically disposed after execution or when the reader has ended.
+    * If **`false`**: The command is not disposed, allowing it to be reused after the call.
 * **`ct`**: *(Async only)* A `CancellationToken` for the task lifecycle.

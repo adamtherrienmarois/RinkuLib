@@ -5,8 +5,6 @@ The library is designed as two independent, highly customizable parts
 * SQL command generation with flexible templating engine
 * Complex type parsing with negociation phase to use the most appropriate construction
 
-(It's not fucking vibe coded)
-
 ---
 
 ## Quick Start

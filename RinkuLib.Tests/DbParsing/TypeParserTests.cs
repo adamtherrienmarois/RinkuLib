@@ -475,9 +475,7 @@ public class TypeParserTests {
         Assert.Equal("Albert", boss.Name);
     }
 }
-public record class User(int ID, string Name, [Alt("Boss")]User? Supervisor) {
-    public User(int ID, string Name) : this(ID, Name, null) { }
-}
+public record class User(int ID, string Name, [Alt("Boss")]User? Supervisor = null);
 public class SimpleUser {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;

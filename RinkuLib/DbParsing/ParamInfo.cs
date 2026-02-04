@@ -68,8 +68,16 @@ public class ParamInfo(Type Type, INullColHandler NullColHandler, INameComparer 
     public DbItemParser? TryGetParser(Type[] declaringTypeArguments, ColumnInfo[] columns, ColModifier colModifier, ref ColumnUsage colUsage) {
         var t = Nullable.GetUnderlyingType(Type);
         var closedType = (t ?? Type).CloseType(declaringTypeArguments);
-        if (TypeParsingInfo.TryGetInfo(closedType, out var typeInfo) && typeInfo.Matcher != BaseTypeMatcher.Instance)
-            return typeInfo.TryGetParser(closedType.IsGenericType ? closedType.GetGenericArguments() : [], NullColHandler, columns, colModifier.Add(NameComparer), t is not null, ref colUsage);
+        var defaultProvider = NullColHandler as MayProvideDefaultValue;
+        var actualNull = defaultProvider?.NullColHandler ?? NullColHandler;
+        if (TypeParsingInfo.TryGetInfo(closedType, out var typeInfo) && typeInfo.Matcher != BaseTypeMatcher.Instance) {
+            var node = typeInfo.TryGetParser(closedType.IsGenericType ? closedType.GetGenericArguments() : [], actualNull, columns, colModifier.Add(NameComparer), t is not null, ref colUsage);
+            if (node is not null)
+                return node;
+            if (t is not null)
+                closedType = typeof(Nullable<>).MakeGenericType(closedType);
+            return defaultProvider?.TryGetItemParser(closedType);
+        }
         int i = 0;
         for (; i < columns.Length; i++) {
             if (colUsage.IsUsed(i))
@@ -78,12 +86,12 @@ public class ParamInfo(Type Type, INullColHandler NullColHandler, INameComparer 
             if (column.Type.CanConvert(closedType) && colModifier.Match(column.Name, NameComparer))
                 break;
         }
-        if (i >= columns.Length)
-            return null;
-        colUsage.Use(i);
         if (t is not null)
             closedType = typeof(Nullable<>).MakeGenericType(closedType);
-        return new BasicParser(closedType, NullColHandler, i);
+        if (i >= columns.Length)
+            return defaultProvider?.TryGetItemParser(closedType);
+        colUsage.Use(i);
+        return new BasicParser(closedType, actualNull, i);
     }
     /// <summary>
     /// Creates a matcher for a constructor or method parameter if the type is usable.
@@ -153,6 +161,8 @@ public class ParamInfo(Type Type, INullColHandler NullColHandler, INameComparer 
         }
         nullColHandler ??= type.IsNullable() ? NullableTypeHandle.Instance : NotNullHandle.Instance;
         nullColHandler = nullColHandler.SetJumpWhenNull(type, hasNullJump);
+        if (param is ParameterInfo p && IsTypeDefault(p))
+            nullColHandler = new DefaultValueProvider(nullColHandler);
         string[] altNames = [];
         if (altCount > 0) {
             altNames = new string[altCount];
@@ -175,5 +185,60 @@ public class ParamInfo(Type Type, INullColHandler NullColHandler, INameComparer 
         else
             comparer = new NameComparerMany(name, altNames);
         return new ParamInfo(type, nullColHandler, comparer);
+    }
+    private static bool IsTypeDefault(ParameterInfo p) {
+        if (!p.HasDefaultValue)
+            return false;
+
+        object? value = p.DefaultValue;
+        Type type = p.ParameterType;
+
+        if (value == null || value == DBNull.Value) {
+            if (type.IsGenericParameter)
+                return true;
+            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+        }
+
+        Type actualType = type.IsEnum ? Enum.GetUnderlyingType(type) : type;
+
+        try {
+            switch (Type.GetTypeCode(actualType)) {
+                case TypeCode.Boolean:
+                    return value is bool b && !b;
+                case TypeCode.Char:
+                    return value is char c && c == '\0';
+                case TypeCode.SByte:
+                case TypeCode.Byte:
+                case TypeCode.Int16:
+                case TypeCode.UInt16:
+                case TypeCode.Int32:
+                case TypeCode.UInt32:
+                case TypeCode.Int64:
+                case TypeCode.UInt64:
+                    return Convert.ToInt64(value) == 0;
+                case TypeCode.Single:
+                case TypeCode.Double:
+                    return Convert.ToDouble(value) == 0.0;
+                case TypeCode.Decimal:
+                    return Convert.ToDecimal(value) == 0m;
+                case TypeCode.DateTime:
+                    return value is DateTime dt && dt == default;
+
+                case TypeCode.Object:
+                    if (actualType == typeof(Guid))
+                        return value is Guid g && g == Guid.Empty;
+                    if (actualType == typeof(TimeSpan))
+                        return value is TimeSpan ts && ts == TimeSpan.Zero;
+                    if (actualType == typeof(DateTimeOffset))
+                        return value is DateTimeOffset dto && dto == default;
+                    return value.Equals(Activator.CreateInstance(actualType));
+
+                default:
+                    return false;
+            }
+        }
+        catch {
+            return false;
+        }
     }
 }

@@ -1,8 +1,10 @@
 # RinkuLib: A Modular Micro-ORM
+RinkuLib is a micro-ORM built on top of **ADO.NET**. It separate any SQL construction from the c# structure and provide a declarative way to build them. The engine also has complex type mapping compability with multiple customization options.
 
-RinkuLib is a micro-ORM built on top of **ADO.NET** that provides a declarative approach to SQL generation and object mapping. It replaces manual string concatenation with a structural blueprint and utilizes an IL-based recursive parser to negotiate and compile high-speed data mapping.
-
-The library is designed as two independent, highly customizable parts—one for SQL command generation and another for complex type parsing—integrated into a unified, seamless workflow.
+The library is designed as two independent, highly customizable parts
+* SQL command generation with flexible templating engine
+* Complex type parsing with negociation phase to use the most appropriate construction
+(It's not fucking vibe coded)
 
 ---
 
@@ -10,102 +12,97 @@ The library is designed as two independent, highly customizable parts—one for 
 
 ```csharp
 // 1. INTERPRETATION: The blueprint (SQL Generation Part)
-// Define the template once; the structure is analyzed and cached.
+// Define the template once to analyzed and cached the sql generation conditions
 string sql = "SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > ?@MinAge AND Cat = ?@Category";
 QueryCommand query = new QueryCommand(sql);
 
 // 2. STATE DEFINITION: The transient builder (State Data)
-// Create a builder for a specific database trip.
+// Create a builder for a specific database trip
 QueryBuilder builder = query.StartBuilder();
-builder.Use("@Grp", "Admin");    // Required: Fails if missing.
-builder.Use("@MinAge", 18);      // Optional: Used, so segment is preserved.
-                                 // @Category: NOT used, so segment is pruned.
+builder.Use("@Grp", "Admin");    // Always added to the string and throw if not used
+builder.Use("@MinAge", 18);      // Will add everything related to the variable
+                                 // @Category not used so wont use anything related to that variable
 
-// 3. EXECUTION: Unified process (SQL Generation + Type Parsing Negotiation)
-// RinkuLib generates the final SQL and fetches the compiled parser delegate.
+// 3. EXECUTION: DB call (SQL Generation + Type Parsing Negotiation)
 using DbConnection cnn = GetConnection();
+// Generates the final SQL, assign the parameters and fetches the compiled parser delegate.
 IEnumerable<User> users = builder.QueryMultiple<User>(cnn);
 
 // Resulting SQL: SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > @MinAge
 ```
 
-### The Philosophy: A Cohesive, Recursive Toolkit
+### The reasons it exist: Separation of concern, Customization and flexibility
 
-RinkuLib is a full-process data tool designed as a series of interconnected, independent modules that work together for a seamless ORM experience. Its "open" architecture is built on a Tree of Responsibility—a nested hierarchy where every major process is decomposable into specialized sub-processes. This ensures you are never "locked in"; you can override a high-level engine, parameterize a mid-level branch, or inject logic into a single leaf-node, allowing you to "plug in" at any level of granularity without breaking the chain.
+When dynamicaly building SQL, individual SQL segment must be able to make a valid SQL. You never see the whole picture until processing. By defining a template first, you can have your c# logic focussing on checking validity and then simply need to "inform" the builder of what you use. That way you can have total separation of concern and no matter where an item affect the SQL result, you can keep exactly the same logic ensuring SQL validity and letting you make oprimized SQL commands without any compromizes.
+When mapping to a type, you rearely need a flat object as the logic item, has a deep, fully customizable, negociation phase that lets you map the flat row result of the DB, to the multi level nesting of the c# type.
+In truts, originaly it was meant as an extensions to `Dapper`, but the blueprint engine had to create the whole `DbCommand` to be efficient, so I made the mapping part.
 
 
 ### The 3-Step Process
 
-1.  **Interpretation (`QueryCommand`):** This is the **one-time setup**. The engine analyzes your SQL template to create a structural blueprint and sets up storage for parameter instructions and mapping functions—both of which are specialized and cached during actual usage.
+1.  **Interpretation (`QueryCommand`):** A reusable blueprint. The engine analyzes your SQL template to create a structural blueprint and sets up storage for parameter instructions cache and mapping functions cache.
 
-2.  **State Definition (`QueryBuilder`):** This is the **temporary data container**. You create this for every database call to hold your specific parameters and true conditions. It acts as the bridge between your C# data and the command's blueprint.
+2.  **State Definition (`QueryBuilder`):** A temporary struct. You create this for every database call to hold your specific parameters and true conditions. It acts as the bridge between your C# data and the command's blueprint.
 
-3.  **Execution (`QueryX` methods):** This is the **final operation**. Using methods (such as `QueryMultipleAsync`, `QueryFirst`, etc.), the engine takes the blueprint from Step 1 and the data from Step 2 to generate the finalized SQL. It then negotiates for the compiled mapping function—either fetching or generating the most appropriate construction process for the current database schema—to turn the results into your C# objects.
+3.  **Execution (`QueryX` methods):** The DB call using methods (such as `QueryMultipleAsync`, `QueryFirst`, etc.). The engine takes the blueprint from Step 1 and the data from Step 2 to generate the finalized SQL and create the complete `DbCommand`. It then find the mots apropriate mapping function between the schema and the type.
 
 ---
 
-## The Core Engines
+### Templating Syntax (SQL generation)
 
-RinkuLib is built on two independent systems. For the full technical specifications, see the dedicated documentation for each:
+The engine analyzes your SQL to create a **reusable blueprint**, fragmenting the query into "footprints" that are preserved or pruned based on the presence of data.
 
-### 1. Templating Syntax (SQL Segmentation)
-
-The engine analyzes your SQL to create a **Structural Blueprint**, fragmenting the query into "Footprints" that are preserved or pruned based on the presence of data.
-
-* **Conditional Markers:** Uses `?@Var` and `/*...*/` to define optional segments—from parameters to entire clauses—ensuring valid SQL syntax after pruning.
-* **Structural Handlers:** Special suffixes like `_N` (Numeric), `_X` (Collection spreading), and `_R` (Raw injection) to adjust the query's physical structure at runtime.
+* **Conditional Markers:** Uses `?@Var` and `/*...*/` to define optional segments, parameters or even entire clauses and ensure valid SQL syntax.
+* **Structural Handlers:** Special suffixes like `_N` (Numeric), `_X` (Collection spreading), and `_R` (Raw injection) to influence the result using runtime data.
 
 **[Read the Full Templating Syntax Documentation](https://github.com/adamtherrienmarois/RinkuLib/blob/main/TemplatingSyntaxDoc.md)**
 
 ---
 
-### 2. Mapping Engine (Recursive Negotiation)
+### Mapping Engine (Complex type Negotiation)
 
-A **Tree of Responsibility** that reconciles the database schema with your C# types to compile optimized mapping delegates.
+Stores metadata about types that are customizable and will be used during negociation to generate an optimal IL-compiled mapping function from type to schema.
 
-* **Schema Negotiation:** Dynamically maps database columns to complex types, handling non-1-to-1 relationships and varied data shapes without manual configuration.
-* **Decomposable Process:** Every step of the mapping is a "plug-in" point, allowing you to inject custom logic into specific branches or leaf-nodes of the object graph.
+* **Schema Negotiation:** Out of the box, it can map complex types via various ctors, factory methods, members or even a mix of both. It even handle recursive types.
+* **Customization:** Almost everything is public and let you adjust the negociation registery how you see fit.
 
 **[Read the Full Mapping Engine Documentation](https://github.com/adamtherrienmarois/RinkuLib/blob/main/MappingEngineDoc.md)**
 
 ---
 
-## Creating a QueryCommand
+## Interpretation: Creating a QueryCommand
 
-The `QueryCommand` is a long-lived orchestrator. You define it once for a specific SQL template, and it becomes the host for all structural and performance logic.
+The `QueryCommand` is a reusable object, that cache every info related to any possible variations of a command. You define it once from a specific SQL template, and it becomes the host all variation of the commands.
 
 ```csharp
 // Parsing happens once at instantiation
 var userCmd = new QueryCommand("SELECT * FROM Users WHERE ID = ?@id AND Age > ?@minAge");
-
 ```
 
-When you create the command, it processes the template and generates optimized internal structures. It is designed for versatility; by using optional markers (`?@`), this single instance can generate different SQL permutations based on the data provided.
+When you create the command, it processes the template and generate an optimized internal structures. Refer to the templating syntax to see all the options, but from now on, you dont have to consider SQL anymore.
 
-The `QueryCommand` acts as a container for the results of the template parsing. It stores the following key elements:
+The `QueryCommand` stores the following key elements:
 
-* **`Mapper`:** A specialized indexer that maps parameter names (like `@id`) to a specific integer index. While the command uses indices internally, the Mapper allows external tools like the `QueryBuilder` to place data into the correct slots of the state array.
-* **`QueryText`:** This is the finalized blueprint of your SQL. It contains the logic for building the query string, where conditions refer directly to indices corresponding with `Mapper`.
-* **`QueryParameters`:** A collection of `DbParamInfo` objects, in order matching to `Mapper`, which store the metadata required to create `DbParameter` objects.
-* **Parser Cache:** A specialized cache that stores compiled IL-functions for mapping database results to C# types based on the returned schema.
+* **`Mapper`:** An indexer that maps parameter/conditions names (like `@id` or `IsInvalid`) to a specific integer index.
+    > Thoses indexes are used internaly, external tools like the `QueryBuilder` uses the `Mapper` to place data into the correct slots of the state array.
+* **`QueryText`:** It contains the logic for building the query string, where conditions refer directly to indices corresponding with `Mapper`.
+* **`QueryParameters`:** A collection of `DbParamInfo` objects which store the metadata required to create `DbParameter` objects.
+* **Parser Cache:** A specialized cache that stores compiled IL-functions for mapping database results to C# types based on the schema used.
 
 **[Read the Full QueryCommand Documentation](https://github.com/adamtherrienmarois/RinkuLib/blob/main/QueryCommandDoc.md)**
 
 ---
 ## State Initialization: The Builders
 
-After defining a `QueryCommand`, you must initialize its **State**. This transient phase determines which optional SQL segments are preserved and provides the actual data for parameters.
+To make a call to the DB, you need a **state**, this is where the builders are used. The **state** determines which optional SQL segments are preserved and provides the actual data for parameters.
 
-RinkuLib offers two builder types via `StartBuilder()` extensions to handle different execution patterns:
+There are two types of builder via `StartBuilder()` extensions for different needs.
 
 ---
 
-### 1. `QueryBuilder` (Transient)
+### 1. `QueryBuilder` (Single-trip queries)
 
-Ideal for **single-trip queries**. It is a lightweight state container used to generate SQL and execute a command once.
-
-* **Use Case:** Standard API calls or one-off fetches.
-* **Logic:** Created, populated, and executed in a single scope.
+**Use Case:** Most of the time when you dont want to keep a `DbCommand` alive.
 
 ```csharp
 var builder = userCmd.StartBuilder();
@@ -113,12 +110,8 @@ builder.Use("@id", 10);
 var user = builder.QueryFirst<User>(cnn);
 ```
 
-### 2. `QueryBuilderCommand<T>` (Managed)
-
-Designed for **repetitive execution** and high-performance loops. It wraps an existing `IDbCommand` to minimize object allocation.
-
-* **Use Case:** Batch processing or importing large datasets.
-* **Logic:** Maintains a persistent `IDbCommand` while you update state/parameters between executions.
+### 2. `QueryBuilderCommand<T>` (Multiple call)
+**Use Case:** Mainly for batch processing when you dont want to remake a `DbCommand` each time.
 
 ```csharp
 using var sqlCmd = new SqlCommand();
@@ -128,6 +121,28 @@ foreach(var val in dataList) {
     builder.Use("@val", val);
     builder.Execute(cnn); // Reuses the internal command object
 }
+```
+#### One step building
+> In the futur there will be a blueprint tied to an object as parameter letting you directly call the QueryX with the parameter object and the blueprint
+> (proof of concept, UserFilters will controll the usage of the variables and will inform the template to make the correct SQL)
+> ```csharp
+> QueryCommand<UserFilters> userCmd = new QueryCommand<UserFilters>("SELECT * FROM Users WHERE ID = ?@id AND Age > ?@minAge");
+> var user = userCmd.QuerySingle<User>(userFilters, cnn);
+> ```
+But for now, you can use a type to auto populate a builder
+```csharp
+// will return a builder with the non null prop/field of the object that match the builder to used (with value)
+var builder = userCmd.StartBuilderWith(obj);
+
+var builder = userCmd.StartBuilderWith(ref largeStruct);
+
+// You can manualy set multiple using a Span<ValueTupe<string, object>>
+var builder = userCmd.StartBuilder([("@Name", "John"), ("IsActive", true)]);
+
+// Equivalent also available once the builder is made
+builder.UseWith(obj);
+builder.UseWith(ref largeStruct);
+builder.Use([("@Name", "John"), ("IsActive", true)]);
 ```
 
 ---

@@ -2,11 +2,9 @@ name: CI - Unit Test
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   build:
@@ -14,19 +12,20 @@ jobs:
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Restore dependencies
-        run: dotnet restore ./RinkuLib.slnx
-
+        run: dotnet restore RinkuLib.slnx
 
       - name: Build the solution
-        run: dotnet build ./RinkuLib.slnx --configuration Release --no-restore
+        run: dotnet build RinkuLib.slnx --configuration Release --no-restore
 
-      - name: Run unit tests with report
-        run: dotnet test ./RinkuLib.Tests/RinkuLib.Tests.csproj --configuration Release --no-build
+      - name: Run unit tests
+        run: dotnet test RinkuLib.Tests/RinkuLib.Tests.csproj --configuration Release --verbosity normal

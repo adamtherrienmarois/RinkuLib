@@ -9,10 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Added permissions so the Action can create the "Tests" tab in the UI
-    permissions:
-      checks: write
-      pull-requests: write
 
     steps:
     - uses: actions/checkout@v4
@@ -31,14 +27,4 @@ jobs:
       run: dotnet build --no-restore
       
     - name: Test
-      # Added --logger "trx" to generate a results file
-      run: dotnet test RinkuLib.Tests/RinkuLib.Tests.csproj --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
-
-    - name: Test Report
-      # This action parses the .trx file and creates the "Tests" section
-      uses: dorny/test-reporter@v1
-      if: always() # Ensures the report is created even if tests fail
-      with:
-        name: .NET Tests Summary            
-        path: "**/test-results.trx"                            
-        reporter: dotnet-trx
+      run: dotnet test RinkuLib.Tests --configuration Release --no-build --verbosity normal

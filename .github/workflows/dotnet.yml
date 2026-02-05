@@ -25,4 +25,4 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
     - name: Test
-      run: dotnet test RinkuLib.Tests/RinkuLib.Tests.csproj --configuration Release
+      run: dotnet test RinkuLib.Tests --configuration Release --no-build --verbosity normal

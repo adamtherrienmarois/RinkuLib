@@ -12,14 +12,14 @@ The library is designed as two independent, highly customizable parts
 ```csharp
 // 1. INTERPRETATION: The blueprint (SQL Generation Part)
 // Define the template once to analyzed and cached the sql generation conditions
-string sql = "SELECT ID, Name FROM Users WHERE Group = @Grp AND Age > ?@MinAge AND Cat = ?@Category";
+string sql = "SELECT ID, Name FROM Users WHERE Group = @Grp AND Cat = ?@Category AND Age > ?@MinAge";
 QueryCommand query = new QueryCommand(sql);
 
 // 2. STATE DEFINITION: The transient builder (State Data)
 // Create a builder for a specific database trip
 QueryBuilder builder = query.StartBuilder();
-builder.Use("@Grp", "Admin");    // Always added to the string and throw if not used
 builder.Use("@MinAge", 18);      // Will add everything related to the variable
+builder.Use("@Grp", "Admin");    // Always added to the string and throw if not used
                                  // @Category not used so wont use anything related to that variable
 
 // 3. EXECUTION: DB call (SQL Generation + Type Parsing Negotiation)

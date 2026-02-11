@@ -1,20 +1,26 @@
-﻿using System;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using System.Xml.Linq;
 using RinkuLib.Tools;
 
 namespace RinkuLib.Queries;
-
+/// <summary>
+/// Identifies a member as a boolean condition for SQL templates rather than a variable.
+/// </summary>
+/// <remarks>
+/// <b>Note:</b> Only valid on <see cref="bool"/> fields or properties. 
+/// If applied to other types, it is silently ignored and treated as a standard member.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+public sealed class ForBoolCondAttribute : Attribute;
 /// <summary>
 /// IL compiled access of an item
 /// </summary>
-public readonly unsafe ref struct TypeAccessor(void* item, Func<IntPtr, int, bool> usage, Func<IntPtr, int, object> value) {
+public readonly unsafe ref struct TypeAccessor(void* item, MemberUsageDelegate usage, MemberValueDelegate value) {
     // Store as IntPtr to match the delegate signature perfectly
-    private readonly IntPtr _item = (IntPtr)item;
-    private readonly Func<IntPtr, int, bool> _getUsage = usage;
-    private readonly Func<IntPtr, int, object> _getValue = value;
+    private readonly void* _item = item;
+    private readonly MemberUsageDelegate _getUsage = usage;
+    private readonly MemberValueDelegate _getValue = value;
     /// <summary>
     /// Check if the value is used
     /// </summary>
@@ -23,7 +29,21 @@ public readonly unsafe ref struct TypeAccessor(void* item, Func<IntPtr, int, boo
     /// Get the used value
     /// </summary>
     public object GetValue(int index) => _getValue(_item, index);
+#if DEBUG
+#pragma warning disable CA2211
+    /// <summary></summary>
+    public static Action<string> Write = Console.WriteLine;
+#pragma warning restore CA2211
+#endif
 }
+/// <summary>
+/// Fast unsafe delegate to switch for usage
+/// </summary>
+public unsafe delegate bool MemberUsageDelegate(void* instance, int index);
+/// <summary>
+/// Fast unsafe delegate to switch for value
+/// </summary>
+public unsafe delegate object MemberValueDelegate(void* instance, int index);
 /// <summary>
 /// IL compiled access of <typeparamref name="T"/>
 /// </summary>
@@ -38,11 +58,11 @@ public static class TypeAccessor<T> {
         object
 #endif
         SharedLock = new();
-    private static (object Key, Func<IntPtr, int, bool> Usage, Func<IntPtr, int, object> Value)[] Variants = [];
+    private static (object Key, MemberUsageDelegate Usage, MemberValueDelegate Value)[] Variants = [];
     /// <summary>
     /// Get the compiled accesor
     /// </summary>
-    public static (Func<IntPtr, int, bool> Usage, Func<IntPtr, int, object> Value) GetOrGenerate(int startVariable, Mapper mapper) {
+    public static (MemberUsageDelegate Usage, MemberValueDelegate Value) GetOrGenerate(int startVariable, Mapper mapper) {
         var currentVariants = Variants;
         foreach (var (Keys, Usage, Value) in currentVariants)
             if (ReferenceEquals(Keys, mapper))
@@ -53,8 +73,8 @@ public static class TypeAccessor<T> {
                 if (ReferenceEquals(Keys, mapper))
                     return (Usage, Value);
 
-            var usage = GenerateDelegate<Func<IntPtr, int, bool>>(startVariable, mapper, true);
-            var value = GenerateDelegate<Func<IntPtr, int, object>>(startVariable, mapper, false);
+            var usage = GenerateDelegate<MemberUsageDelegate>(startVariable, mapper, true);
+            var value = GenerateDelegate<MemberValueDelegate>(startVariable, mapper, false);
 
             Variants = [.. Variants, (mapper, usage, value)];
             return (usage, value);
@@ -63,8 +83,8 @@ public static class TypeAccessor<T> {
     private static TDelegate GenerateDelegate<TDelegate>(int startVariable, Mapper mapper, bool forUsage) where TDelegate : Delegate {
         var varChar = mapper.Count > startVariable ? mapper.Keys[startVariable][0] : '\0';
         Type type = typeof(T);
-        DynamicMethod dm = new($"{type.Name}_{(forUsage ? "U" : "V")}", forUsage ? typeof(bool) : typeof(object), [typeof(IntPtr), typeof(int)], true);
-        ILGenerator il = dm.GetILGenerator();
+        DynamicMethod dm = new($"{type.Name}_{(forUsage ? "U" : "V")}", forUsage ? typeof(bool) : typeof(object), [typeof(void*), typeof(int)], type.Module, true);
+        var il = dm.GetILGenerator();
 
         int switchCount = mapper.Count;
         AccessorEmitter?[] plans = new AccessorEmitter?[switchCount];
@@ -77,16 +97,31 @@ public static class TypeAccessor<T> {
         MemberInfo[] allMembers = type.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
         int index;
         foreach (var member in allMembers) {
-            // handle custom attributes
             if (member is not FieldInfo && member is not PropertyInfo)
                 continue;
-            index = GetIndexAppendVarChar(varChar, mapper, member);
-            if (index >= 0 && index < switchCount) {
+            Type? memberType = 
+                member is FieldInfo f ? f.FieldType : 
+                member is PropertyInfo p ? p.PropertyType : 
+                member is MethodInfo m ? m.ReturnType :
+                null;
+            if (memberType == typeof(bool) &&
+                              member.IsDefined(typeof(ForBoolCondAttribute), inherit: true)) {
+                index = mapper.GetIndex(member.Name);
+                if (index < 0 || index >= switchCount)
+                    continue;
                 plans[index] = forUsage
-                    ? new MemberUsageEmitter(typeof(T), member)
-                    : new MemberValueEmitter(typeof(T), member);
+                    ? new MemberCondUsageEmitter(type, member)
+                    : new MemberValueEmitter(type, member);
                 switchTable[index] = il.DefineLabel();
+                continue;
             }
+            index = GetIndexAppendVarChar(varChar, mapper, member);
+            if (index < 0 || index >= switchCount)
+                continue;
+            plans[index] = forUsage
+                ? new MemberUsageEmitter(type, member)
+                : new MemberValueEmitter(type, member);
+            switchTable[index] = il.DefineLabel();
         }
 
         il.Emit(OpCodes.Ldarg_1);

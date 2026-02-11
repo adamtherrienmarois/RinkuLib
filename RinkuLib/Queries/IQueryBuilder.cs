@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using System.Runtime.CompilerServices;
 
 namespace RinkuLib.Queries;
 
@@ -49,20 +50,44 @@ public interface IQueryBuilder {
     /// <summary>
     /// Activates a condition that only functions as a toggle (such as a column or a conditional marker).
     /// </summary>
+    /// <param name="conditionIndex">The index of the condition to activate.</param>
+    void Use(int conditionIndex);
+    /// <summary>
+    /// Desactivate a condition that only functions as a toggle (such as a column or a conditional marker).
+    /// </summary>
     /// <param name="condition">The name of the condition to activate.</param>
-    void SafelyUse(string condition);
+    void UnUse(string condition);
+    /// <summary>
+    /// Desactivate a condition that only functions as a toggle (such as a column or a conditional marker).
+    /// </summary>
+    /// <param name="conditionIndex">The index of the condition to activate.</param>
+    void UnUse(int conditionIndex);
     /// <summary>
     /// Activates a variable and assigns it a data value.
     /// </summary>
     /// <param name="variable">The name of the item to activate.</param>
     /// <param name="value">The data value to assign.</param>
     /// <returns>True if the item is active after this call.</returns>
-    /// <remarks>
-    /// <b>Implementation Note:</b> While this method is intended for data-bearing variables, 
-    /// passing a <see cref="bool"/> <c>true</c> can be used to activate a non-value condition. 
-    /// However, passing <c>false</c> will simply result in a no-op (does not call <see cref="Remove"/>).
-    /// </remarks>
-    bool Use(string variable, object value);
+    bool Use(string variable, object? value);
+    /// <summary>
+    /// Activates a variable and assigns it a data value.
+    /// </summary>
+    /// <param name="variableIndex">The index of the item to activate.</param>
+    /// <param name="value">The data value to assign.</param>
+    /// <returns>True if the item is active after this call.</returns>
+    bool Use(int variableIndex, object? value);
+    /// <summary>
+    /// Set the builder state alligned with the parameter object
+    /// </summary>
+    public unsafe void UseWith(object parameterObj);
+    /// <summary>
+    /// Set the builder state alligned with the parameter object
+    /// </summary>
+    public unsafe void UseWith<T>(T parameterObj) where T : notnull;
+    /// <summary>
+    /// Set the builder state alligned with the parameter object
+    /// </summary>
+    public unsafe void UseWith<T>(ref T parameterObj) where T : notnull;
 }
 /// <summary>
 /// A <see cref="ISchemaParser{T}"/> allready initialized

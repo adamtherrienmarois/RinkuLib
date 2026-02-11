@@ -206,7 +206,7 @@ public class QueryParsingTests {
         var query = new QueryCommand("SELECT * FROM Tasks WHERE CategoryID IN (?@Cats_X)");
         var builder = query.StartBuilder();
         var amount = 150;
-        builder.UseEnumerable("@Cats", Enumerable.Range(1, amount));
+        builder.Use("@Cats", Enumerable.Range(1, amount));
         var expectedParams = Enumerable.Range(1, amount).Select(i => ("@Cats_" + i, (object)i)).ToArray();
         Verify(builder, $"SELECT * FROM Tasks WHERE CategoryID IN ({string.Join(", ", expectedParams.Select(t => t.Item1))})", expectedParams);
     }
@@ -544,29 +544,44 @@ public class QueryParsingTests {
         Verify(builder, "WITH U AS (SELECT Name FROM Users) SELECT * FROM U", []);
     }
     [Fact]
-    public void Using_ObjectMapping() {
+    public void Using_ObjectMapping_Struct() {
         var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
         var builder = query.StartBuilder();
-        builder.UseWith(new TestDtoClass(null, null, null));
-        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees ORDER BY Salary DESC", []);
-
-        builder.UseWith(new TestDtoStruct(10, null, null));
-        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Salary >= @MinSalary ORDER BY Salary DESC", 
+        builder.UseWith((object)new TestDtoStruct(10, null, null));
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Salary >= @MinSalary ORDER BY Salary DESC",
             [("@MinSalary", 10)]);
 
-        builder = query.StartBuilder();
+    }
+    [Fact]
+    public void Using_ObjectMapping_Ref() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
         var t = new TestDtoStruct(null, "Marketing", "Employed");
         builder.UseWith(ref t);
         Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
             [("@DeptName", "Marketing"), ("@EmployeeStatus", "Employed")]);
+    }
+    [Fact]
+    public void Using_ObjectMapping() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
 
-        var t2 = new TestDtoClass(10, "Marketing", "Employed") { Year = true };
-        builder = query.StartBuilderWith(ref t2);
+        builder.UseWith((object)new TestDtoClass(null, null, null));
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees ORDER BY Salary DESC", []);
+
+    }
+    [Fact]
+    public void Using_ObjectMapping_Struct_Ref() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
+        var t = new TestDtoClass(22, "Marketingg", "Employed") { Year = true };
+        builder.UseWith(t);
         Verify(builder, "SELECT EmployeeId, FirstName, Salary, Year FROM Employees WHERE Salary >= @MinSalary AND Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
-            [("@MinSalary", 10), ("@DeptName", "Marketing"), ("@EmployeeStatus", "Employed")]);
+            [("@MinSalary", 22), ("@DeptName", "Marketingg"), ("@EmployeeStatus", "Employed")]);
     }
 }
 public record struct TestDtoStruct(int? MinSalary, string? DeptName, string? EmployeeStatus);
 public record class TestDtoClass(int? MinSalary, string? DeptName, string? EmployeeStatus) {
+    public int OtherField = 32;
     [ForBoolCond] public bool Year;
 }

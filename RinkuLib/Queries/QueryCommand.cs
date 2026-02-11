@@ -7,6 +7,9 @@ using System.Runtime.InteropServices;
 using RinkuLib.Tools;
 
 namespace RinkuLib.Queries;
+
+[StructLayout(LayoutKind.Sequential)]
+internal class RawData { public byte Data; }
 /// <summary>
 /// The central orchestration engine that integrates SQL text generation (<see cref="Queries.QueryText"/>) 
 /// with parameter metadata management (<see cref="QueryParameters"/>).
@@ -32,7 +35,7 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
     public readonly QueryText QueryText;
     private object? _parsingCache;
     private IntPtr[] _handles = [];
-    private (Func<IntPtr, int, bool> Usage, Func<IntPtr, int, object> Value)[] _funcs = [];
+    private (MemberUsageDelegate Usage, MemberValueDelegate Value)[] _funcs = [];
     /// <summary>
     /// A lock shared to ensure thread safety across multiple <see cref="TypeAccessor"/> instances.
     /// </summary>
@@ -286,67 +289,71 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand(IDbCommand cmd, object parameterObj, Span<bool> usageMap) {
-        IntPtr handle = *(IntPtr*)Unsafe.AsPointer(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(parameterObj).Data) {
-            return SetCommand(cmd, GetAccessor(ptr, handle, parameterObj.GetType()), usageMap);
+        var type = parameterObj.GetType();
+        IntPtr handle = type.TypeHandle.Value;
+        fixed (void* pinningPtr = &Unsafe.As<RawData>(parameterObj).Data) {
+            return SetCommand(cmd, GetAccessor(pinningPtr, handle, type), usageMap);
         }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand(DbCommand cmd, object parameterObj, Span<bool> usageMap) {
-        IntPtr handle = *(IntPtr*)Unsafe.AsPointer(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(parameterObj).Data) {
-            return SetCommand(cmd, GetAccessor(ptr, handle, parameterObj.GetType()), usageMap);
+        var type = parameterObj.GetType();
+        IntPtr handle = type.TypeHandle.Value;
+        fixed (void* pinningPtr = &Unsafe.As<RawData>(parameterObj).Data) {
+            return SetCommand(cmd, GetAccessor(pinningPtr, handle, type), usageMap);
         }
     }
-
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(IDbCommand cmd, T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
+        fixed (void* ptr = &Unsafe.As<T, RawData>(ref parameterObj).Data) {
             return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(DbCommand cmd, T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
+        fixed (void* ptr = &Unsafe.As<T, RawData>(ref parameterObj).Data) {
             return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(IDbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
+        var loc = parameterObj;
+        fixed (void* ptr = &Unsafe.As<T, RawData>(ref loc).Data) {
             return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
     }
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public unsafe bool SetCommand<T>(DbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull { 
+    public unsafe bool SetCommand<T>(DbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
+        var loc = parameterObj;
+        fixed (void* ptr = &Unsafe.As<T, RawData>(ref parameterObj).Data) {
             return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
     }
-    [StructLayout(LayoutKind.Sequential)]
-    private class RawData { public byte Data; }
+    /// <summary>
+    /// Unsafe getter to get the cached accessor
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe TypeAccessor GetAccessor(void* ptr, IntPtr handle, Type type) {
+    public unsafe TypeAccessor GetAccessor(void* ptr, IntPtr handle, Type type) {
         var hds = _handles;
         for (int i = 0; i < hds.Length; i++) {
             if (hds[i] != handle) {
@@ -362,11 +369,11 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
                 if (_handles[i] == handle)
                     return new TypeAccessor(ptr, _funcs[i].Usage, _funcs[i].Value);
 
-            var method = typeof(TypeAccessor<>).MakeGenericType(type).GetMethod("GetOrGenerate", BindingFlags.Public | BindingFlags.Static);
-            var res = ((Func<IntPtr, int, bool>, Func<IntPtr, int, object>))method!.Invoke(null, [StartVariables, Mapper])!;
+            var method = typeof(TypeAccessor<>).MakeGenericType(type).GetMethod(nameof(TypeAccessor<>.GetOrGenerate), BindingFlags.Public | BindingFlags.Static);
+            var res = ((MemberUsageDelegate, MemberValueDelegate))method!.Invoke(null, [StartVariables, Mapper])!;
             int len = _handles.Length;
             var newH = new IntPtr[len + 1];
-            var newF = new (Func<IntPtr, int, bool>, Func<IntPtr, int, object>)[len + 1];
+            var newF = new (MemberUsageDelegate, MemberValueDelegate)[len + 1];
             _handles.CopyTo(newH, 0);
             _funcs.CopyTo(newF, 0);
             newH[len] = handle;
@@ -406,6 +413,31 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         return true;
     }
     private bool SetCommand(DbCommand cmd, TypeAccessor accessor, Span<bool> usageMap) {
-        throw new NotImplementedException();
+        Debug.Assert(usageMap.Length == Mapper.Count);
+        var varInfos = Parameters._variablesInfo;
+        var handlers = Parameters._specialHandlers;
+        var nbVariables = Parameters.NbVariables;
+
+        var startVariables = StartVariables;
+        ref string pKeys = ref Unsafe.Add(ref Mapper.KeysStartPtr, startVariables);
+        var nbSpecialHandlers = Parameters.Total - nbVariables;
+        var total = Mapper.Count;
+        int i = 0;
+        for (; i < startVariables; i++)
+            usageMap[i] = accessor.IsUsed(i);
+
+        for (; i < nbVariables; i++)
+            if (usageMap[i] = accessor.IsUsed(i))
+                varInfos[i].Use(Unsafe.Add(ref pKeys, i), cmd, accessor.GetValue(i));
+
+        for (; i < nbSpecialHandlers; i++)
+            if (usageMap[i] = accessor.IsUsed(i))
+                handlers[i].Use(cmd, accessor.GetValue(i));
+
+        for (; i < total; i++)
+            usageMap[i] = accessor.IsUsed(i);
+
+        cmd.CommandText = QueryText.Parse(usageMap, accessor);
+        return true;
     }
 }

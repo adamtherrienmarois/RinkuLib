@@ -55,7 +55,7 @@ public abstract class SpecialHandler : IQuerySegmentHandler {
     /// <param name="currentValue">The transformed state stored from a previous <see cref="SaveUse"/>.</param>
     /// <param name="newValue">The new raw data provided for this execution.</param>
     /// <returns><c>true</c> if the parameters were successfully synchronized.</returns>
-    public abstract bool Update(IDbCommand cmd, ref object currentValue, object newValue);
+    public abstract bool Update(IDbCommand cmd, ref object? currentValue, object? newValue);
     /// <summary>
     /// Binds data to the <see cref="IDbCommand"/> and preserves a detailed transformation 
     /// state to allow for subsequent <see cref="Update"/> calls on this command instance.
@@ -66,7 +66,7 @@ public abstract class SpecialHandler : IQuerySegmentHandler {
     /// (e.g., an array of bound parameter objects) required for future differential updates.
     /// </param>
     /// <returns><c>true</c> if the parameters were successfully created and saved.</returns>
-    public abstract bool SaveUse(IDbCommand cmd, ref object value);
+    public abstract bool SaveUse(IDbCommand cmd, ref object? value);
     /// <summary>
     /// Binds data to the <see cref="IDbCommand"/> for a single execution pass.
     /// </summary>
@@ -79,18 +79,8 @@ public abstract class SpecialHandler : IQuerySegmentHandler {
     /// <param name="value">The raw value to bind.</param>
     /// <returns><c>true</c> if the parameters were successfully bound.</returns>
     public abstract bool Use(IDbCommand cmd, object value);
-    /// <summary>
-    /// Removes parameters associated with this handler from the <see cref="IDbCommand"/>.
-    /// </summary>
-    /// <param name="cmd">The command to prune.</param>
-    /// <param name="value">The transformed state value used to identify the parameters to remove.</param>
-    /// <returns><c>true</c> if the removal was successful.</returns>
-    public abstract bool Remove(IDbCommand cmd, object value);
     /// <summary> Performs the same logic as <see cref="Use(IDbCommand, object)"/> but specialized for <see cref="DbCommand"/> to reduce interface dispatch overhead. </summary>
     public abstract bool Use(DbCommand cmd, object value);
-
-    /// <summary> Performs the same logic as <see cref="Remove(IDbCommand, object)"/> but specialized for <see cref="DbCommand"/> to reduce interface dispatch overhead. </summary>
-    public abstract bool Remove(DbCommand cmd, object value);
     /// <summary>
     /// Generates the SQL fragment for this variable. This is called after the 
     /// command synchronization phase has transformed the input <paramref name="value"/>.
@@ -133,33 +123,43 @@ public class MultiVariableHandler(string ParameterName) : SpecialHandler {
     /// Performs a differential update on the command. Adds, updates, or prunes 
     /// parameters based on the change in collection size since the last <see cref="SaveUse"/>.
     /// </summary>
-    public override bool Update(IDbCommand cmd, ref object currentValue, object newValue) {
-        if (newValue is not System.Collections.IEnumerable e) return false;
+    public override bool Update(IDbCommand cmd, ref object? currentValue, object? newValue) {
+        if (newValue is not System.Collections.IEnumerable e) {
+            if (newValue is not null)
+                return false;
+            if (currentValue is null)
+                return true;
+            if (currentValue is not object[] currentArr)
+                return false;
+            RemoveArray(cmd, currentArr);
+            currentValue = null!;
+            return true;
+        }
         if (currentValue is not object[] arr)
             throw new Exception("the value was not set or not saved");
         object[] array = [.. e];
         var cached = CachedParam;
         if (array.Length == arr.Length) {
             for (int i = 0; i < array.Length; i++)
-                if (!cached.Update(cmd, ref arr[i], array[i]))
+                if (!cached.Update(cmd, ref arr[i]!, array[i]))
                     return false;
             currentValue = arr;
             return true;
         }
         if (array.Length < arr.Length) {
             for (int i = 0; i < array.Length; i++) {
-                if (!cached.Update(cmd, ref arr[i], array[i]))
+                if (!cached.Update(cmd, ref arr[i]!, array[i]))
                     return false;
                 array[i] = arr[i];
             }
             for (int i = array.Length; i < arr.Length; i++)
                 cached.Remove(cmd, arr[i]);
-            currentValue = array;
+            currentValue = array.Length <= 0 ? null : array;
             return true;
         }
         if (array.Length > arr.Length) {
             for (int i = 0; i < arr.Length; i++) {
-                if (!cached.Update(cmd, ref arr[i], array[i]))
+                if (!cached.Update(cmd, ref arr[i]!, array[i]))
                     return false;
                 array[i] = arr[i];
             }
@@ -188,40 +188,7 @@ public class MultiVariableHandler(string ParameterName) : SpecialHandler {
         IsCached = CachedParam.IsCached;
         return true;
     }
-    /// <inheritdoc/>
-    public override bool Remove(IDbCommand cmd, object oldValue) {
-        if (oldValue is not int nb) {
-            if (oldValue is not object[] arr)
-                return false;
-            RemoveArray(cmd, arr);
-            return true;
-        }
-        if (nb == 0)
-            return false;
-        var ps = cmd.Parameters;
-        var name = ParameterName;
-        var nameLen = name.Length;
-        var nameSpan = name.AsSpan();
-        for (int i = ps.Count - 1; i >= 0; i--) {
-            var p = ((IDbDataParameter)ps[i]!).ParameterName;
-            if (p.Length <= nameLen || p[nameLen] != '_')
-                continue;
-            if (!p.AsSpan(0, nameLen).SequenceEqual(nameSpan))
-                continue;
-            ps.RemoveAt(i);
-        }
-        return true;
-    }
-
     private void RemoveArray(IDbCommand cmd, object[] oldArray) {
-        if (oldArray.Length == 0)
-            return;
-        var cached = CachedParam;
-        for (int i = 0; i < oldArray.Length; i++)
-            cached.Remove(cmd, oldArray[i]);
-    }
-
-    private void RemoveArray(DbCommand cmd, object[] oldArray) {
         if (oldArray.Length == 0)
             return;
         var cached = CachedParam;
@@ -232,7 +199,7 @@ public class MultiVariableHandler(string ParameterName) : SpecialHandler {
     /// Binds the collection and replaces <paramref name="value"/> with an <c>object[]</c> 
     /// to enable subsequent differential <see cref="Update"/> calls.
     /// </summary>
-    public override bool SaveUse(IDbCommand cmd, ref object value) {
+    public override bool SaveUse(IDbCommand cmd, ref object? value) {
         if (value is not System.Collections.IEnumerable e) return false;
         object[] array = [.. e];
         if (array.Length == 0) {
@@ -270,33 +237,6 @@ public class MultiVariableHandler(string ParameterName) : SpecialHandler {
             }
             cached.Use(BuildName(ParameterName, i, nbDigits), cmd, item);
             i++;
-        }
-        return true;
-    }
-    /// <summary>
-    /// Removes all numbered parameters matching the <see cref="ParameterName"/> pattern 
-    /// from the command's parameter collection.
-    /// </summary>
-    public override bool Remove(DbCommand cmd, object oldValue) {
-        if (oldValue is not int nb) {
-            if (oldValue is not object[] arr)
-                return false;
-            RemoveArray(cmd, arr);
-            return true;
-        }
-        if (nb == 0)
-            return false;
-        var ps = cmd.Parameters;
-        var name = ParameterName;
-        var nameLen = name.Length;
-        var nameSpan = name.AsSpan();
-        for (int i = ps.Count - 1; i >= 0; i--) {
-            var p = ps[i].ParameterName;
-            if (p.Length <= nameLen || p[nameLen] != '_')
-                continue;
-            if (!p.AsSpan(0, nameLen).SequenceEqual(nameSpan))
-                continue;
-            ps.RemoveAt(i);
         }
         return true;
     }

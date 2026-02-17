@@ -7,6 +7,14 @@ using System.Runtime.InteropServices;
 using RinkuLib.Tools;
 
 namespace RinkuLib.Queries;
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct RawObject {
+    public IntPtr MethodTable;
+    public byte Data;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal class RawData { public byte Data; }
 /// <summary>
 /// The central orchestration engine that integrates SQL text generation (<see cref="Queries.QueryText"/>) 
 /// with parameter metadata management (<see cref="QueryParameters"/>).
@@ -18,21 +26,21 @@ namespace RinkuLib.Queries;
 /// to partition a single array of variables into standard parameters, special handlers, 
 /// and literal injections.</para>
 /// </remarks>
-public class QueryCommand : ParsingCache, IQueryCommand, ICache {
+public class QueryCommand : IQueryCommand, ICache {
     /// <inheritdoc/>
     public Mapper Mapper;
     Mapper IQueryCommand.Mapper => Mapper;
     int IQueryCommand.StartBaseHandlers => StartBaseHandlers;
     int IQueryCommand.StartSpecialHandlers => StartSpecialHandlers;
-    int IQueryCommand.StartVariables => StartVariables;
-    int IQueryCommand.EndSelect => EndSelect;
+    int IQueryCommand.StartBoolCond => StartBoolCond;
     /// <summary> The registry for parameter metadata and caching strategies. </summary>
     public readonly QueryParameters Parameters;
     /// <summary> The SQL template and segment parsing logic. </summary>
     public readonly QueryText QueryText;
-    private object? _parsingCache;
+    /// <summary> The parsing items cached </summary>
+    public ParsingCacheItem[] ParsingCache = [];
     private IntPtr[] _handles = [];
-    private (Func<IntPtr, int, bool> Usage, Func<IntPtr, int, object> Value)[] _funcs = [];
+    private (MemberUsageDelegate Usage, MemberValueDelegate Value)[] _funcs = [];
     /// <summary>
     /// A lock shared to ensure thread safety across multiple <see cref="TypeAccessor"/> instances.
     /// </summary>
@@ -43,14 +51,22 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         object
 #endif
         TypeAccessorSharedLock = new();
+    /// <summary>
+    /// A lock shared to ensure thread safety across multiple parsingCache instances.
+    /// </summary>
+    public static readonly
+#if NET9_0_OR_GREATER
+        Lock
+#else
+        object
+#endif
+        ParsingCacheSharedLock = new();
     /// <inheritdoc/>
     public readonly int StartBaseHandlers;
     /// <inheritdoc/>
     public readonly int StartSpecialHandlers;
     /// <inheritdoc/>
-    public readonly int StartVariables;
-    /// <inheritdoc/>
-    public readonly int EndSelect;
+    public readonly int StartBoolCond;
     /// <summary>Initialization of a query command from a SQL query template</summary>
     public QueryCommand(string query, char variableChar = default)
         : this(new QueryFactory(query, variableChar, SpecialHandler.SpecialHandlerGetter.PresenceMap)) { }
@@ -59,81 +75,217 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         Mapper = factory.Mapper;
         var segments = factory.Segments;
         var queryString = factory.Query;
-        StartSpecialHandlers = Mapper.Count - factory.NbHandlers;
-        StartBaseHandlers = Mapper.Count - factory.NbBaseHandlers;
-        StartVariables = StartSpecialHandlers - factory.NbNormalVar;
-        EndSelect = factory.NbSelects;
+        StartBoolCond = Mapper.Count - factory.NbNonVarComment;
+        StartBaseHandlers = StartBoolCond - factory.NbBaseHandlers;
+        StartSpecialHandlers = StartBaseHandlers - factory.NbSpecialHandlers;
         var specialHandlers = GetHandlers(queryString, segments);
         QueryText = new(queryString, segments, factory.Conditions);
-        Parameters = new(StartSpecialHandlers - StartVariables, specialHandlers);
-        _parsingCache = ParsingCache.New(factory.NbSelects);
+        Parameters = new(factory.NbNormalVar, specialHandlers);
     }
-    /// <inheritdoc/>
-    public override bool TryGetCache<T>(Span<bool> usageMap, out SchemaParser<T> cache) {
-        if (_parsingCache is not SchemaParser<T> c) {
-            if (_parsingCache is ParsingCache p)
-                p.TryGetCache(usageMap, out c);
-            else {
+    /// <summary>
+    /// Try getting the parsing cache without the schema
+    /// </summary>
+    public unsafe bool TryGetCache<T>(Span<bool> usageMap, out SchemaParser<T> cache) {
+        bool* pUsage = (bool*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(usageMap));
+        uint mapLen = (uint)usageMap.Length;
+        var cacheArray = ParsingCache;
+        int cacheLen = cacheArray.Length;
+
+        for (int i = 0; i < cacheLen; i++) {
+            ref var entry = ref cacheArray[i];
+            var idxs = entry.FalseIndexes;
+            int idxLen = idxs.Length;
+
+            fixed (int* pIdx = &MemoryMarshal.GetArrayDataReference(idxs)) {
+                if (idxLen == 1) {
+                    if (*(pUsage + *pIdx))
+                        goto NextEntry;
+                }
+                else {
+                    for (int j = 0; j < idxLen; j++)
+                        if (*(pUsage + pIdx[j]))
+                            goto NextEntry;
+                }
+            }
+            object parserObj = entry.Parser;
+            if (parserObj is null) {
                 cache = default;
                 return false;
             }
+            if (parserObj is Func<DbDataReader, T> p) {
+                cache = new SchemaParser<T>(p, entry.CommandBehavior);
+                return !NeedToCache(usageMap);
+            }
+        NextEntry: ;
         }
-        cache = c;
-        return !NeedToCache(usageMap);
+        cache = default;
+        return false;
     }
+    /// <summary>
+    /// Try getting the parsing cache without the schema
+    /// </summary>
+    public unsafe bool TryGetCache<T>(object?[] usageMap, out SchemaParser<T> cache) {
+        ref object? usageBase = ref MemoryMarshal.GetArrayDataReference(usageMap);
 
-    /// <inheritdoc/>
-    public override int GetActualCacheIndex<T>(Span<bool> usageMap) {
-        if (_parsingCache is ParsingCache p)
-            return p.GetActualCacheIndex<T>(usageMap);
-        if (_parsingCache is null) {
-            _parsingCache = new SchemaParser<T>();
-            return 0;
-        }
-        if (_parsingCache is not SchemaParser<T>)
-            return -1;
-        return 0;
-    }
-    /// <inheritdoc/>
-    public override bool TryGetCache<T>(object?[] variables, out SchemaParser<T> cache) {
-        if (_parsingCache is not SchemaParser<T> c) {
-            if (_parsingCache is ParsingCache p)
-                p.TryGetCache(variables, out c);
-            else {
+        var cacheArray = ParsingCache;
+        int cacheLen = cacheArray.Length;
+
+        for (int i = 0; i < cacheLen; i++) {
+            ref var entry = ref cacheArray[i];
+            int[] idxs = entry.FalseIndexes;
+            int idxLen = idxs.Length;
+
+            fixed (int* pIdx = &MemoryMarshal.GetArrayDataReference(idxs)) {
+                if (idxLen == 1) {
+                    if (Unsafe.Add(ref usageBase, *pIdx) is not null)
+                        goto NextEntry;
+                }
+                else {
+                    for (int j = 0; j < idxLen; j++) {
+                        if (Unsafe.Add(ref usageBase, pIdx[j]) is not null)
+                            goto NextEntry;
+                    }
+                }
+            }
+
+            object pObj = entry.Parser;
+            if (pObj is null) {
                 cache = default;
                 return false;
             }
-        }
-        cache = c;
-        return !NeedToCache(variables);
-    }
 
-    /// <inheritdoc/>
-    public override int GetActualCacheIndex<T>(object?[] variables) {
-        if (_parsingCache is ParsingCache p)
-            return p.GetActualCacheIndex<T>(variables);
-        if (_parsingCache is null) {
-            _parsingCache = new SchemaParser<T>();
-            return 0;
+            if (pObj is Func<DbDataReader, T> p) {
+                cache = new SchemaParser<T>(p, entry.CommandBehavior);
+                return !NeedToCache(usageMap);
+            }
+
+        NextEntry: ;
         }
-        if (_parsingCache is not SchemaParser<T>)
-            return -1;
-        return 0;
+
+        cache = default;
+        return false;
     }
-    /// <inheritdoc/>
-    public override bool UpdateCache<T>(int index, SchemaParser<T> cache) {
-        if (_parsingCache is ParsingCache p)
-            return p.UpdateCache(index, cache);
-        if (_parsingCache is null) {
-            _parsingCache = cache;
+    /// <summary>
+    /// Update the parsing cache for a given schema
+    /// </summary>
+    public bool UpdateCache<T>(int[] falseIndexes, ColumnInfo[] schema, SchemaParser<T> cache) {
+        lock (ParsingCacheSharedLock) {
+            if (ParsingCache.Length == 0)
+                ParsingCache = InitParsingCache();
+            var cacheIndexesToRemove = new List<int>();
+            var nbNullParser = 0;
+            var ind = 0;
+            int j;
+            for (; ind < ParsingCache.Length; ind++) {
+                ref var item = ref ParsingCache[ind];
+                if (item.Parser is null) {
+                    if (MatchIndexes(falseIndexes, item.FalseIndexes))
+                        cacheIndexesToRemove.Add(ind);
+                    nbNullParser++;
+                }
+                else if (item.Parser is Func<DbDataReader, T> && schema.Equal(item.Schema)) {
+                    var currentLen = item.FalseIndexes.Length;
+                    item.FalseIndexes = GetIntersection(item.FalseIndexes, falseIndexes);
+                    if (item.FalseIndexes.Length < currentLen) {
+                        currentLen = item.FalseIndexes.Length;
+                        for (j = ind + 1; j < ParsingCache.Length; j++)
+                            if (ParsingCache[j].FalseIndexes.Length > currentLen)
+                                (ParsingCache[j], ParsingCache[j - 1]) = (ParsingCache[j - 1], ParsingCache[j]);
+                    }
+                    break;
+                }
+            }
+            var allreadyIn = ind < ParsingCache.Length;
+            if (cacheIndexesToRemove.Count == 0 && allreadyIn)
+                return true;
+            var newCache = new ParsingCacheItem[ParsingCache.Length - cacheIndexesToRemove.Count + (allreadyIn ? 0 : 1)];
+            j = 0;
+            int k = 0;
+            for (int i = 0; i < nbNullParser; i++) {
+                if (k < cacheIndexesToRemove.Count && cacheIndexesToRemove[k] == i) {
+                    k++;
+                    continue;
+                }
+                newCache[j++] = ParsingCache[i];
+            }
+            var falseIndexesLen = falseIndexes.Length;
+            for (int i = nbNullParser; i < ParsingCache.Length; i++) {
+                ref var item = ref ParsingCache[i];
+                if (!allreadyIn && item.FalseIndexes.Length < falseIndexesLen)
+                    newCache[j++] = new() { FalseIndexes = falseIndexes, CommandBehavior = cache.Behavior, Parser = cache.parser, Schema = schema };
+                newCache[j++] = item;
+            }
+            if (!allreadyIn && newCache[^1].FalseIndexes is null)
+                newCache[^1] = new() { FalseIndexes = falseIndexes, CommandBehavior = cache.Behavior, Parser = cache.parser, Schema = schema };
+            ParsingCache = newCache;
             return true;
         }
-        if (_parsingCache is not SchemaParser<T>)
+    }
+    private static int[] GetIntersection(int[] left, int[] right) {
+        int leftLen = left.Length;
+        int rightLen = right.Length;
+
+        if (ReferenceEquals(left, right))
+            return left;
+        if (leftLen == 0)
+            return left;
+        if (rightLen == 0)
+            return right;
+
+        Span<int> intersectBuffer = stackalloc int[Math.Min(leftLen, rightLen)];
+        int count = 0;
+
+        for (int i = 0; i < leftLen; i++) {
+            int target = left[i];
+            for (int j = 0; j < rightLen; j++) {
+                if (target == right[j]) {
+                    intersectBuffer[count++] = target;
+                    break;
+                }
+            }
+        }
+        if (count == leftLen)
+            return left;
+        if (count == rightLen)
+            return right;
+        return intersectBuffer[..count].ToArray();
+    }
+    private static bool MatchIndexes(int[] falseIndexes, int[] cachedFalseIndexes) {
+        for (int i = 0; i < cachedFalseIndexes.Length; i++) {
+            var look = cachedFalseIndexes[i];
+            for (int j = 0; j < falseIndexes.Length; j++)
+                if (j == look)
+                    goto Match;
             return false;
-        if (index != 0)
-            return false;
-        _parsingCache = cache;
+        Match:;
+        }
         return true;
+    }
+
+    private ParsingCacheItem[] InitParsingCache() {
+        var conditions = QueryText.Conditions;
+        HashSet<int[]> indexes = new(ArrayContentComparer<int>.Instance);
+        var nbConds = conditions.Length - 1;
+        for (int i = 0; i < nbConds; i++) {
+            ref var cond = ref conditions[i];
+            if (cond.NbConditionSkip >= 0) {
+                indexes.Add([cond.CondIndex]);
+                continue;
+            }
+            var count = conditions[i + 1].NbConditionSkip;
+            var ii = new int[count + 1];
+            ii[0] = cond.CondIndex;
+            for (int j = 1; j <= count; j++)
+                ii[j] = conditions[i + j].CondIndex;
+        }
+        var res = new ParsingCacheItem[indexes.Count];
+        var ind = 0;
+        foreach (var item in indexes) {
+            res[ind++] = new() {
+                FalseIndexes = item
+            };
+        }
+        return res;
     }
     /// <summary>
     /// A fast way to identify if there are parameters that are used for the first time in the given state.
@@ -189,21 +341,21 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
     }
     private bool UpdateCache<T>(T infoGetter) where T : IDbParamInfoGetter {
         foreach (var item in infoGetter.EnumerateParameters()) {
-            var ind = Mapper.GetIndex(item.Key) - StartVariables;
-            if (ind < 0 || Parameters.IsCached(ind))
+            var ind = Mapper.GetIndex(item.Key);
+            if (ind < 0 || ind >= StartBaseHandlers || Parameters.IsCached(ind))
                 continue;
             Parameters.UpdateCache(ind, infoGetter.MakeInfoAt(item.Value));
         }
         Parameters.UpdateSpecialHandlers(infoGetter);
-        Parameters.UpdateNbCached();
+        Parameters.UpdateCachedIndexes();
         return true;
     }
     /// <summary>
     /// Provide a manual way to set a cache for a specific parameter
     /// </summary>
     public bool UpdateParamCache(string paramName, DbParamInfo paramInfo) {
-        var ind = Mapper.GetIndex(paramName) - StartVariables;
-        if (ind < 0)
+        var ind = Mapper.GetIndex(paramName);
+        if (ind < 0 || ind >= StartBaseHandlers)
             return false;
         Parameters.UpdateCache(ind, paramInfo);
         return true;
@@ -229,21 +381,18 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         Debug.Assert(variables.Length == Mapper.Count);
         var varInfos = Parameters._variablesInfo;
         var handlers = Parameters._specialHandlers;
-        var nbVariables = Parameters.NbVariables;
 
-        ref object? pVar = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(variables), StartVariables);
+        ref object? pVar = ref MemoryMarshal.GetArrayDataReference(variables);
         ref string pKeys = ref Mapper.KeysStartPtr;
 
-        for (int i = 0; i < nbVariables; i++) {
+        for (int i = 0; i < varInfos.Length; i++) {
             var currentVar = Unsafe.Add(ref pVar, i);
             if (currentVar is not null)
                 varInfos[i].Use(Unsafe.Add(ref pKeys, i), cmd, currentVar);
         }
 
-        ref object? pSpecialVar = ref Unsafe.Add(ref pVar, nbVariables);
-        var nbSpecialHandlers = Parameters.Total - nbVariables;
-
-        for (int i = 0; i < nbSpecialHandlers; i++) {
+        ref object? pSpecialVar = ref Unsafe.Add(ref pVar, varInfos.Length);
+        for (int i = 0; i < handlers.Length; i++) {
             ref var currentVar = ref Unsafe.Add(ref pSpecialVar, i);
             if (currentVar is not null)
                 handlers[i].Use(cmd, currentVar);
@@ -258,21 +407,18 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         Debug.Assert(variables.Length == Mapper.Count);
         var varInfos = Parameters._variablesInfo;
         var handlers = Parameters._specialHandlers;
-        var nbVariables = Parameters.NbVariables;
 
-        ref object? pVar = ref Unsafe.Add(ref MemoryMarshal.GetReference(variables), StartVariables);
-        ref string pKeys = ref Unsafe.Add(ref Mapper.KeysStartPtr, StartVariables);
+        ref object? pVar = ref MemoryMarshal.GetArrayDataReference(variables);
+        ref string pKeys = ref Mapper.KeysStartPtr;
 
-        for (int i = 0; i < nbVariables; i++) {
+        for (int i = 0; i < varInfos.Length; i++) {
             var currentVar = Unsafe.Add(ref pVar, i);
             if (currentVar is not null)
                 varInfos[i].Use(Unsafe.Add(ref pKeys, i), cmd, currentVar);
         }
 
-        ref object? pSpecialVar = ref Unsafe.Add(ref pVar, nbVariables);
-        var nbSpecialHandlers = Parameters.Total - nbVariables;
-
-        for (int i = 0; i < nbSpecialHandlers; i++) {
+        ref object? pSpecialVar = ref Unsafe.Add(ref pVar, varInfos.Length);
+        for (int i = 0; i < handlers.Length; i++) {
             ref var currentVar = ref Unsafe.Add(ref pSpecialVar, i);
             if (currentVar is not null)
                 handlers[i].Use(cmd, currentVar);
@@ -286,67 +432,87 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand(IDbCommand cmd, object parameterObj, Span<bool> usageMap) {
-        IntPtr handle = *(IntPtr*)Unsafe.AsPointer(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(parameterObj).Data) {
-            return SetCommand(cmd, GetAccessor(ptr, handle, parameterObj.GetType()), usageMap);
+        var type = parameterObj.GetType();
+        IntPtr handle = type.TypeHandle.Value;
+        if (type.IsValueType) {
+            fixed (void* objPtr = &Unsafe.As<object, byte>(ref parameterObj)) {
+                void* dataPtr = (*(byte**)objPtr) + IntPtr.Size;
+                return SetCommand(cmd, GetAccessor(dataPtr, handle, type), usageMap);
+            }
+        }
+        fixed (void* ptr = &Unsafe.As<object, byte>(ref parameterObj)) {
+            void* instancePtr = *(void**)ptr;
+            return SetCommand(cmd, GetAccessor(instancePtr, handle, type), usageMap);
         }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand(DbCommand cmd, object parameterObj, Span<bool> usageMap) {
-        IntPtr handle = *(IntPtr*)Unsafe.AsPointer(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(parameterObj).Data) {
-            return SetCommand(cmd, GetAccessor(ptr, handle, parameterObj.GetType()), usageMap);
+        var type = parameterObj.GetType();
+        IntPtr handle = type.TypeHandle.Value;
+        if (type.IsValueType) {
+            fixed (void* objPtr = &Unsafe.As<object, byte>(ref parameterObj)) {
+                void* dataPtr = (*(byte**)objPtr) + IntPtr.Size;
+                return SetCommand(cmd, GetAccessor(dataPtr, handle, type), usageMap);
+            }
+        }
+        fixed (void* ptr = &Unsafe.As<object, byte>(ref parameterObj)) {
+            void* instancePtr = *(void**)ptr;
+            return SetCommand(cmd, GetAccessor(instancePtr, handle, type), usageMap);
         }
     }
-
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(IDbCommand cmd, T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
-            return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj)) {
+            return SetCommand(cmd, GetAccessor(*(void**)ptr, handle, typeof(T)), usageMap);
+        }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(DbCommand cmd, T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        if (typeof(T).IsValueType)
             return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
-            return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj)) {
+            return SetCommand(cmd, GetAccessor(*(void**)ptr, handle, typeof(T)), usageMap);
+        }
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public unsafe bool SetCommand<T>(IDbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-            return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
-            return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        if (typeof(T).IsValueType) {
+            fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj))
+                return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
+        fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj)) {
+            return SetCommand(cmd, GetAccessor(*(void**)ptr, handle, typeof(T)), usageMap);
+        }
     }
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public unsafe bool SetCommand<T>(DbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull { 
+    public unsafe bool SetCommand<T>(DbCommand cmd, ref T parameterObj, Span<bool> usageMap) where T : notnull {
         IntPtr handle = typeof(T).TypeHandle.Value;
-        if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-            return SetCommand(cmd, GetAccessor(Unsafe.AsPointer(ref parameterObj), handle, typeof(T)), usageMap);
-        object obj = Unsafe.As<T, object>(ref parameterObj);
-        fixed (void* ptr = &Unsafe.As<RawData>(obj).Data)
-            return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        if (typeof(T).IsValueType) {
+            fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj))
+                return SetCommand(cmd, GetAccessor(ptr, handle, typeof(T)), usageMap);
+        }
+        fixed (void* ptr = &Unsafe.As<T, byte>(ref parameterObj)) {
+            return SetCommand(cmd, GetAccessor(*(void**)ptr, handle, typeof(T)), usageMap);
+        }
     }
-    [StructLayout(LayoutKind.Sequential)]
-    private class RawData { public byte Data; }
+    /// <summary>
+    /// Unsafe getter to get the cached accessor
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe TypeAccessor GetAccessor(void* ptr, IntPtr handle, Type type) {
+    public unsafe TypeAccessor GetAccessor(void* ptr, IntPtr handle, Type type) {
         var hds = _handles;
         for (int i = 0; i < hds.Length; i++) {
             if (hds[i] != handle) {
@@ -362,11 +528,11 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
                 if (_handles[i] == handle)
                     return new TypeAccessor(ptr, _funcs[i].Usage, _funcs[i].Value);
 
-            var method = typeof(TypeAccessor<>).MakeGenericType(type).GetMethod("GetOrGenerate", BindingFlags.Public | BindingFlags.Static);
-            var res = ((Func<IntPtr, int, bool>, Func<IntPtr, int, object>))method!.Invoke(null, [StartVariables, Mapper])!;
+            var method = typeof(TypeAccessor<>).MakeGenericType(type).GetMethod(nameof(TypeAccessor<>.GetOrGenerate), BindingFlags.Public | BindingFlags.Static);
+            var res = ((MemberUsageDelegate, MemberValueDelegate))method!.Invoke(null, [Mapper])!;
             int len = _handles.Length;
             var newH = new IntPtr[len + 1];
-            var newF = new (Func<IntPtr, int, bool>, Func<IntPtr, int, object>)[len + 1];
+            var newF = new (MemberUsageDelegate, MemberValueDelegate)[len + 1];
             _handles.CopyTo(newH, 0);
             _funcs.CopyTo(newF, 0);
             newH[len] = handle;
@@ -381,21 +547,15 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         Debug.Assert(usageMap.Length == Mapper.Count);
         var varInfos = Parameters._variablesInfo;
         var handlers = Parameters._specialHandlers;
-        var nbVariables = Parameters.NbVariables;
 
-        ref string pKeys = ref Unsafe.Add(ref Mapper.KeysStartPtr, StartVariables);
-        var startVariables = StartVariables;
-        var nbSpecialHandlers = Parameters.Total - nbVariables;
+        ref string pKeys = ref Mapper.KeysStartPtr;
         var total = Mapper.Count;
         int i = 0;
-        for (; i < startVariables; i++)
-            usageMap[i] = accessor.IsUsed(i);
-
-        for (; i < nbVariables; i++)
+        for (; i < StartSpecialHandlers; i++)
             if (usageMap[i] = accessor.IsUsed(i))
                 varInfos[i].Use(Unsafe.Add(ref pKeys, i), cmd, accessor.GetValue(i));
 
-        for (; i < nbSpecialHandlers; i++)
+        for (; i < StartBaseHandlers; i++)
             if (usageMap[i] = accessor.IsUsed(i))
                 handlers[i].Use(cmd, accessor.GetValue(i));
 
@@ -406,6 +566,25 @@ public class QueryCommand : ParsingCache, IQueryCommand, ICache {
         return true;
     }
     private bool SetCommand(DbCommand cmd, TypeAccessor accessor, Span<bool> usageMap) {
-        throw new NotImplementedException();
+        Debug.Assert(usageMap.Length == Mapper.Count);
+        var varInfos = Parameters._variablesInfo;
+        var handlers = Parameters._specialHandlers;
+
+        ref string pKeys = ref Mapper.KeysStartPtr;
+        var total = Mapper.Count;
+        int i = 0;
+        for (; i < StartSpecialHandlers; i++)
+            if (usageMap[i] = accessor.IsUsed(i))
+                varInfos[i].Use(Unsafe.Add(ref pKeys, i), cmd, accessor.GetValue(i));
+
+        for (; i < StartBaseHandlers; i++)
+            if (usageMap[i] = accessor.IsUsed(i))
+                handlers[i].Use(cmd, accessor.GetValue(i));
+
+        for (; i < total; i++)
+            usageMap[i] = accessor.IsUsed(i);
+
+        cmd.CommandText = QueryText.Parse(usageMap, accessor);
+        return true;
     }
 }

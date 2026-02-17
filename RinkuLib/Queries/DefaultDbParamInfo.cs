@@ -82,18 +82,20 @@ public class TypedDbParamCache : DbParamInfo {
         //should skip 24
     }
     /// <inheritdoc/>
-    public override bool Update(IDbCommand cmd, ref object currentValue, object newValue) {
+    public override bool Update(IDbCommand cmd, ref object? currentValue, object? newValue) {
         if (currentValue is not IDbDataParameter p)
             return false;
+        if (newValue is null) {
+            cmd.Parameters.Remove(currentValue);
+            currentValue = null;
+            return true;
+        }
         p.Value = newValue;
         return true;
     }
     /// <inheritdoc/>
     public override void Remove(IDbCommand cmd, object? currentValue) 
         => cmd.Parameters.Remove(currentValue);
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, IDbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, IDbCommand cmd, object value) {
         var p = cmd.CreateParameter();
@@ -113,9 +115,6 @@ public class TypedDbParamCache : DbParamInfo {
         value = p;
         return true;
     }
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, DbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, DbCommand cmd, object value) {
         var p = cmd.CreateParameter();
@@ -202,18 +201,20 @@ public class SizedDbParamCache : DbParamInfo {
         return newItem;
     }
     /// <inheritdoc/>
-    public override bool Update(IDbCommand cmd, ref object currentValue, object newValue) {
+    public override bool Update(IDbCommand cmd, ref object? currentValue, object? newValue) {
         if (currentValue is not IDbDataParameter p)
             return false;
+        if (newValue is null) {
+            cmd.Parameters.Remove(currentValue);
+            currentValue = null;
+            return true;
+        }
         p.Value = newValue;
         return true;
     }
     /// <inheritdoc/>
     public override void Remove(IDbCommand cmd, object? currentValue) 
         => cmd.Parameters.Remove(currentValue);
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, IDbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, IDbCommand cmd, object value) {
         var p = cmd.CreateParameter();
@@ -235,9 +236,6 @@ public class SizedDbParamCache : DbParamInfo {
         value = p;
         return true;
     }
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, DbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, DbCommand cmd, object value) {
         var p = cmd.CreateParameter();
@@ -258,18 +256,20 @@ public class InferedDbParamCache : DbParamInfo {
     public static readonly InferedDbParamCache Instance = new();
     private InferedDbParamCache() : base(false) { }
     /// <inheritdoc/>
-    public override bool Update(IDbCommand cmd, ref object currentValue, object newValue) {
+    public override bool Update(IDbCommand cmd, ref object? currentValue, object? newValue) {
         if (currentValue is not IDbDataParameter p)
             return false;
+        if (newValue is null) {
+            cmd.Parameters.Remove(currentValue);
+            currentValue = null;
+            return true;
+        }
         p.Value = newValue;
         return true;
     }
     /// <inheritdoc/>
     public override void Remove(IDbCommand cmd, object currentValue) 
         => cmd.Parameters.Remove(currentValue);
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, IDbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, IDbCommand cmd, object value) {
         var p = cmd.CreateParameter();
@@ -287,9 +287,6 @@ public class InferedDbParamCache : DbParamInfo {
         value = p;
         return true;
     }
-    /// <inheritdoc/>
-    public override bool Remove(string paramName, DbCommand cmd)
-        => RemoveSingle(paramName, cmd);
     /// <inheritdoc/>
     public override bool Use(string paramName, DbCommand cmd, object value) {
         var p = cmd.CreateParameter();

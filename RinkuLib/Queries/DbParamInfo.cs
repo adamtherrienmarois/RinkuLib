@@ -91,7 +91,7 @@ public interface IDbParamCache {
     /// <summary>
     /// Synchronizes the internal tracking of cached vs. non-cached parameters.
     /// </summary>
-    public void UpdateNbCached();
+    public void UpdateCachedIndexes();
 }
 /// <summary>
 /// The base class that manage a <see cref="IDbDataParameter"/> within a query
@@ -108,7 +108,7 @@ public abstract class DbParamInfo(bool IsCached) {
     /// Expects <paramref name="currentValue"/> to be the parameter reference 
     /// captured by a previous <see cref="SaveUse"/>.
     /// </summary>
-    public abstract bool Update(IDbCommand cmd, ref object currentValue, object newValue);
+    public abstract bool Update(IDbCommand cmd, ref object? currentValue, object? newValue);
     /// <summary> 
     /// Binds the value to the command and replaces <paramref name="value"/> with 
     /// the parameter reference to enable high-speed updates in the future. 
@@ -118,8 +118,6 @@ public abstract class DbParamInfo(bool IsCached) {
     public abstract bool Use(string paramName, IDbCommand cmd, object value);
     /// <summary> Removes the specific parameter reference from the command. </summary>
     public abstract void Remove(IDbCommand cmd, object currentValue);
-    /// <summary> Removes a parameter by name from the command collection. </summary>
-    public abstract bool Remove(string paramName, IDbCommand cmd);
     /// <summary> Removes a parameter by name from the command collection. </summary>
     public static bool RemoveSingle(string paramName, IDbCommand cmd) {
         var parameters = cmd.Parameters;
@@ -133,8 +131,6 @@ public abstract class DbParamInfo(bool IsCached) {
     }
     /// <summary> Binds a value to the command for a single execution. </summary>
     public abstract bool Use(string paramName, DbCommand cmd, object value);
-    /// <summary> Removes the specific parameter reference from the command. </summary>
-    public abstract bool Remove(string paramName, DbCommand cmd);
     /// <summary> Removes a parameter by name from the command collection. </summary>
     public static bool RemoveSingle(string paramName, DbCommand cmd) {
         var parameters = cmd.Parameters;

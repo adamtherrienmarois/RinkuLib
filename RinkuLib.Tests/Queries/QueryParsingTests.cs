@@ -45,7 +45,7 @@ public class QueryParsingTests {
         // @Status is not provided
         Assert.False(builder.Use("NotInQuery", true));
         Assert.False(builder.Use("@NotInQuery", true));
-        Assert.Throws<IndexOutOfRangeException>(() => builder.Use("NotInQuery"));
+        Assert.Throws<ArgumentException>(() => builder.Use("NotInQuery"));
     }
     [Fact]
     public void Example2_OptionalVariableFilter_NotProvided() {
@@ -206,7 +206,7 @@ public class QueryParsingTests {
         var query = new QueryCommand("SELECT * FROM Tasks WHERE CategoryID IN (?@Cats_X)");
         var builder = query.StartBuilder();
         var amount = 150;
-        builder.UseEnumerable("@Cats", Enumerable.Range(1, amount));
+        builder.Use("@Cats", Enumerable.Range(1, amount));
         var expectedParams = Enumerable.Range(1, amount).Select(i => ("@Cats_" + i, (object)i)).ToArray();
         Verify(builder, $"SELECT * FROM Tasks WHERE CategoryID IN ({string.Join(", ", expectedParams.Select(t => t.Item1))})", expectedParams);
     }
@@ -523,7 +523,7 @@ public class QueryParsingTests {
         var query = new QueryCommand("?SELECT ID, Username, Email&, Test FROM Users WHERE IsActive = 1");
         var builder = query.StartBuilder();
         builder.Use("ID");
-        builder.Use("Email");
+        builder.Use("Test");
         Verify(builder, "SELECT ID, Email, Test FROM Users WHERE IsActive = 1", []);
     }
     [Fact]
@@ -533,7 +533,6 @@ public class QueryParsingTests {
         builder.Use("Test");
         builder.Use("Username");
         builder.Use("ID");
-        builder.Use("Email");
         Verify(builder, "SELECT ID, Username, Email, Test FROM Users WHERE IsActive = 1", []);
     }
     [Fact]
@@ -544,29 +543,57 @@ public class QueryParsingTests {
         Verify(builder, "WITH U AS (SELECT Name FROM Users) SELECT * FROM U", []);
     }
     [Fact]
-    public void Using_ObjectMapping() {
+    public void Using_ObjectMapping_Struct_Obj() {
         var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
         var builder = query.StartBuilder();
-        builder.UseWith(new TestDtoClass(null, null, null));
-        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees ORDER BY Salary DESC", []);
+        builder.UseWith((object)new TestDtoStruct(10, null, "P"));
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Salary >= @MinSalary AND Status = @EmployeeStatus ORDER BY Salary DESC",
+            [("@MinSalary", 10), ("@EmployeeStatus", "P")]);
 
-        builder.UseWith(new TestDtoStruct(10, null, null));
-        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Salary >= @MinSalary ORDER BY Salary DESC", 
-            [("@MinSalary", 10)]);
+    }
+    [Fact]
+    public void Using_ObjectMapping_Class_Obj() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
 
-        builder = query.StartBuilder();
+        builder.UseWith((object)new TestDtoClass(null, null, null) { Year = true });
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary, Year FROM Employees ORDER BY Salary DESC", []);
+
+    }
+    [Fact]
+    public void Using_ObjectMapping_Struct_Ref() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
         var t = new TestDtoStruct(null, "Marketing", "Employed");
         builder.UseWith(ref t);
         Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
             [("@DeptName", "Marketing"), ("@EmployeeStatus", "Employed")]);
-
-        var t2 = new TestDtoClass(10, "Marketing", "Employed") { Year = true };
-        builder = query.StartBuilderWith(ref t2);
-        Verify(builder, "SELECT EmployeeId, FirstName, Salary, Year FROM Employees WHERE Salary >= @MinSalary AND Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
-            [("@MinSalary", 10), ("@DeptName", "Marketing"), ("@EmployeeStatus", "Employed")]);
     }
-}
-public record struct TestDtoStruct(int? MinSalary, string? DeptName, string? EmployeeStatus);
-public record class TestDtoClass(int? MinSalary, string? DeptName, string? EmployeeStatus) {
-    [ForBoolCond] public bool Year;
+    [Fact]
+    public void Using_ObjectMapping_Class_Ref() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
+        var t = new TestDtoClass(22, "Marketingg", "Employed") { Year = true };
+        builder.UseWith(ref t);
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary, Year FROM Employees WHERE Salary >= @MinSalary AND Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
+            [("@MinSalary", 22), ("@DeptName", "Marketingg"), ("@EmployeeStatus", "Employed")]);
+    }
+    [Fact]
+    public void Using_ObjectMapping_Struct() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
+        var t = new TestDtoStruct(null, "Marketing", "Employed");
+        builder.UseWith(t);
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary FROM Employees WHERE Department = @DeptName AND Status = @EmployeeStatus ORDER BY Salary DESC",
+            [("@DeptName", "Marketing"), ("@EmployeeStatus", "Employed")]);
+    }
+    [Fact]
+    public void Using_ObjectMapping_Class() {
+        var query = new QueryCommand("SELECT EmployeeId, FirstName, Salary, /*Year*/Year FROM Employees WHERE Salary >= ?@MinSalary AND Department = ?@DeptName AND Status = ?@EmployeeStatus ORDER BY Salary DESC");
+        var builder = query.StartBuilder();
+        var t = new TestDtoClass(23, "Marketin", null) { Year = true };
+        builder.UseWith(t);
+        Verify(builder, "SELECT EmployeeId, FirstName, Salary, Year FROM Employees WHERE Salary >= @MinSalary AND Department = @DeptName ORDER BY Salary DESC",
+            [("@MinSalary", 23), ("@DeptName", "Marketin")]);
+    }
 }

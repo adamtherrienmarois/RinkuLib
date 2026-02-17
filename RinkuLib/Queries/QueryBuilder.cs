@@ -251,22 +251,4 @@ internal class PeekableWrapper(object? first, IEnumerator enumerator) : IEnumera
     ~PeekableWrapper() => Dispose();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static unsafe object GetObjectFromDataPointer(void* dataPtr) {
-        // 1. Move pointer back from Data to the MethodTable (Object Head)
-        void* objectHead = (byte*)dataPtr - sizeof(IntPtr);
-
-        // 2. Treat the address of that pointer as a managed reference to an object
-        // We are essentially doing: return *(object*)objectHead;
-        return Unsafe.AsRef<object>(&objectHead);
-    }
-}
-/// <summary></summary>
-public record struct TestDtoStruct(int? MinSalary, string? DeptName, string? EmployeeStatus);
-/// <summary></summary>
-public record class TestDtoClass(int? MinSalary, string? DeptName, string? EmployeeStatus) {
-    /// <summary></summary>
-    public int OtherField = 32;
-    /// <summary></summary>
-    [ForBoolCond] public bool Year;
 }

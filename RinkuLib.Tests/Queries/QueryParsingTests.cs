@@ -597,3 +597,9 @@ public class QueryParsingTests {
             [("@MinSalary", 23), ("@DeptName", "Marketin")]);
     }
 }
+public record struct TestDtoStruct(int? MinSalary, string? DeptName, string? EmployeeStatus);
+
+public record class TestDtoClass(int? MinSalary, string? DeptName, string? EmployeeStatus) {
+    public int OtherField = 32;
+    [ForBoolCond] public bool Year;
+}

@@ -125,25 +125,23 @@ foreach(var val in dataList) {
 }
 ```
 #### One step building
-> In the futur there will be to use an object as parameter letting you directly call the QueryX with the parameter object and the blueprint
-> (proof of concept, UserFilters will controll the usage of the variables and will inform the template to make the correct SQL)
-> ```csharp
-> var user = userCmd.QuerySingle<User>(userFilters, cnn);
-> ```
-But for now, you can use a type to auto populate a builder
+There are ways to initialize the state in one step by using object instances with the state values:
 ```csharp
-// will return a builder with the non null prop/field of the object that match the builder to used (with value)
-var builder = userCmd.StartBuilderWith(obj);
-
-var builder = userCmd.StartBuilderWith(ref largeStruct);
-
-// You can manualy set multiple using a Span<ValueTupe<string, object>>
-var builder = userCmd.StartBuilder([("@Name", "John"), ("IsActive", true)]);
-
-// Equivalent also available once the builder is made
-builder.UseWith(obj);
-builder.UseWith(ref largeStruct);
-builder.Use([("@Name", "John"), ("IsActive", true)]);
+public record class StateParameters(int? MinSalary, string? DeptName, string? EmployeeStatus) {
+    public int OtherField = 32;
+    [ForBoolCond] public bool Year;
+}
+```
+By default, it match the members with variables in SQL (`@DeptName` instead of `DeptName`), if you want to correspond to a boolean condition, you must use the `[ForBoolCond]` attribute and the member must be of type bool.
+```csharp
+var user = userCmd.QuerySingle<User>(new StateParameters(10, null, "Employed") { Year = true }, cnn);
+```
+It is also possible to use parameter objects with a builder if you want to modify the values before executing
+```csharp
+var builder = userCmd.StartBuilder(); // or .StartBuilder(sqlCmd);
+builder.UseWith(stateParams);
+builder.Use("Year");
+var users = builder.QueryMultiple<User>(cnn);
 ```
 
 ---

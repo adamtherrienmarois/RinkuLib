@@ -17,13 +17,6 @@ public struct ColumnInfo(string Name, Type Type, bool IsNullable) {
     /// Indicates if the schema identifies this column as potentially containing null values.
     /// </summary>
     public bool IsNullable = IsNullable;
-    /// <summary>
-    /// Performs a comparison based on type, name (case-insensitive), and nullability.
-    /// </summary>
-    public readonly bool Equals(ColumnInfo column) 
-        => column.IsNullable == IsNullable
-        && column.Type == Type
-        && string.Equals(column.Name, Name, StringComparison.OrdinalIgnoreCase);
 }
 /// <summary>
 /// A simple conparar that compare the array sequence instead of the simple array reference
@@ -55,14 +48,8 @@ public static class Helper {
     /// <see cref="ColumnInfo"/> array for the Negotiation Phase.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ColumnInfo[] GetColumns(this DbDataReader reader)
-        => reader.GetColumnSchema().GetColumns();
-
-    /// <summary>
-    /// Converts a <see cref="ReadOnlyCollection{DbColumn}"/> it into a 
-    /// <see cref="ColumnInfo"/> array for the Negotiation Phase.
-    /// </summary>
-    public static ColumnInfo[] GetColumns(this ReadOnlyCollection<DbColumn> schema) {
+    public static ColumnInfo[] GetColumns(this DbDataReader reader) { 
+        var schema = reader.GetColumnSchema();
         var columns = new ColumnInfo[schema.Count];
         for (var i = 0; i < schema.Count; i++) {
             var column = schema[i];
@@ -78,15 +65,42 @@ public static class Helper {
         return columns;
     }
     /// <summary>
+    /// Extracts the schema from a <see cref="DbDataReader"/> and converts it into a 
+    /// <see cref="ColumnInfo"/> array for the Negotiation Phase. (column will always be considered nullable)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ColumnInfo[] GetColumnsFast(this DbDataReader reader) {
+        int fieldCount = reader.FieldCount;
+        if (fieldCount == 0)
+            return [];
+
+        var columns = new ColumnInfo[fieldCount];
+
+        for (int i = 0; i < fieldCount; i++) {
+            columns[i] = new ColumnInfo {
+                Name = reader.GetName(i) ?? string.Empty,
+                Type = reader.GetFieldType(i) ?? typeof(object),
+                IsNullable = true
+            };
+        }
+
+        return columns;
+    }
+    /// <summary>
     /// Compares two schema arrays for structural equality. 
     /// This is used to determine if a cached parser can be reused for a new request.
     /// </summary>
-    public static bool Equal(this ColumnInfo[] cols1, ColumnInfo[] cols2) {
-        if (cols1.Length != cols2.Length)
+    public static bool EquivalentTo(this ColumnInfo[] candidate, ColumnInfo[] stored) {
+        if (candidate.Length != stored.Length)
             return false;
-        for (var i = 0; i < cols1.Length; i++)
-            if (!cols1[i].Equals(cols2[i]))
+        for (var i = 0; i < candidate.Length; i++) {
+            ref var c = ref candidate[i];
+            ref var s = ref stored[i];
+            if (c.Type != s.Type 
+            || (!s.IsNullable && c.IsNullable) 
+            || !string.Equals(c.Name, s.Name, StringComparison.OrdinalIgnoreCase))
                 return false;
+        }
         return true;
     }
     /// <summary>

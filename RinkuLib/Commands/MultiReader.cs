@@ -4,7 +4,6 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using RinkuLib.Commands;
 using RinkuLib.DbParsing;
 using RinkuLib.Queries;
 using RinkuLib.Tools;
@@ -23,24 +22,22 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
     private readonly bool wasClosed = wasClosed;
     private int nbResultSetPassedMinusOne = -1;
     /// <summary>Parse the current row in the current result set, does not read or change result set</summary>
-    public T? Get<T>() {
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
-        return cache.Parse(reader);
+    public T? Get<T>() => GetCache<T>().Parse(reader);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal SchemaParser<T> GetCache<T>() {
+        if (command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne))
+            return cache;
+        var schema = reader.GetColumns();
+        cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
+        command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
+        return cache;
     }
     /// <summary>Automaticaly skip non-returning set, parse the first row in that result set and go to next result directly (ignore orher rows)</summary>
     public T? QueryOne<T>() {
         while (reader.FieldCount == 0)
             reader.NextResult();
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         T? res = default;
         if (reader.Read())
             res = cache.Parse(reader);
@@ -52,11 +49,7 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
         while (reader.FieldCount == 0)
             await reader.NextResultAsync(ct).ConfigureAwait(false);
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         T? res = default;
         if (await reader.ReadAsync(ct).ConfigureAwait(false))
             res = cache.Parse(reader);
@@ -68,11 +61,7 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
         while (reader.FieldCount == 0)
             reader.NextResult();
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         while (reader.Read())
             yield return cache.Parse(reader);
         reader.NextResult();
@@ -82,11 +71,7 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
         while (reader.FieldCount == 0)
             await reader.NextResultAsync(ct).ConfigureAwait(false);
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
             yield return cache.Parse(reader);
         await reader.NextResultAsync(ct).ConfigureAwait(false);
@@ -96,11 +81,7 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
         while (reader.FieldCount == 0)
             reader.NextResult();
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         List<T> res = [];
         while (reader.Read())
             res.Add(cache.Parse(reader));
@@ -112,11 +93,7 @@ public sealed class MultiReader(bool[] usage, QueryCommand command, DbDataReader
         while (reader.FieldCount == 0)
             await reader.NextResultAsync(ct).ConfigureAwait(false);
         nbResultSetPassedMinusOne++;
-        if (!command.TryGetCache<T>(usage, out var cache, nbResultSetPassedMinusOne)) {
-            var schema = reader.GetColumns();
-            cache = new(TypeParser<T>.GetParserFunc(ref schema, out var behavior), behavior);
-            command.UpdateCache(usage.GetFalseIndexes(), schema, cache, nbResultSetPassedMinusOne);
-        }
+        var cache = GetCache<T>();
         List<T> res = [];
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
             res.Add(cache.Parse(reader));

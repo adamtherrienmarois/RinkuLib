@@ -90,13 +90,13 @@ public static class QueryBuilderExtensions {
         /// <param name="cnn">The connection to execute on</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery(DbConnection cnn, DbTransaction? transaction = null, int? timeout = null) {
+        public int Execute(DbConnection cnn, DbTransaction? transaction = null, int? timeout = null) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = GetCommand(command, vars, cnn, transaction, timeout);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="DbCommand"/> and return the nb of affected rows.
@@ -105,13 +105,29 @@ public static class QueryBuilderExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(DbConnection cnn, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(DbConnection cnn, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = GetCommand(command, vars, cnn, transaction, timeout);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader(DbConnection cnn, out DbCommand cmd, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null) {
+            var vars = builder.Variables;
+            var command = builder.QueryCommand;
+            cmd = GetCommand(command, vars, cnn, transaction, timeout);
+            if (command.NeedToCache(vars))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -127,6 +143,23 @@ public static class QueryBuilderExtensions {
             if (command.NeedToCache(vars))
                 return cmd.ExecuteReader(command, behavior);
             return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        /// <param name="ct">The fowarded cancellation token</param>
+        public Task<DbDataReader> ExecuteReaderAsync(DbConnection cnn, out DbCommand cmd, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+            var vars = builder.Variables;
+            var command = builder.QueryCommand;
+            cmd = GetCommand(command, vars, cnn, transaction, timeout);
+            if (command.NeedToCache(vars))
+                return cmd.ExecuteReaderAsync(command, behavior, ct);
+            return cmd.ExecuteReaderAsync<NoNeedToCache>(default, behavior, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -269,13 +302,13 @@ public static class QueryBuilderExtensions {
         /// <param name="cnn">The connection to execute on</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery(IDbConnection cnn, IDbTransaction? transaction = null, int? timeout = null) {
+        public int Execute(IDbConnection cnn, IDbTransaction? transaction = null, int? timeout = null) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = GetCommand(command, vars, cnn, transaction, timeout);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="IDbCommand"/> and return the nb of affected rows.
@@ -284,13 +317,29 @@ public static class QueryBuilderExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(IDbConnection cnn, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(IDbConnection cnn, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = GetCommand(command, vars, cnn, transaction, timeout);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="IDbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader(IDbConnection cnn, out IDbCommand cmd, CommandBehavior behavior = default, IDbTransaction? transaction = null, int? timeout = null) {
+            var vars = builder.Variables;
+            var command = builder.QueryCommand;
+            cmd = GetCommand(command, vars, cnn, transaction, timeout);
+            if (command.NeedToCache(vars))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
         }
         /// <summary>
         /// Executes the reader of the <see cref="IDbCommand"/>.

@@ -185,7 +185,7 @@ public class QueryCommand : IQueryCommand, ICache {
                         cacheIndexesToRemove.Add(ind);
                     nbNullParser++;
                 }
-                else if (item.ResultSetIndex == resultSetIndex && item.Parser is Func<DbDataReader, T> && schema.Equal(item.Schema)) {
+                else if (item.ResultSetIndex == resultSetIndex && item.Parser is Func<DbDataReader, T> && schema.EquivalentTo(item.Schema)) {
                     var currentLen = item.FalseIndexes.Length;
                     item.FalseIndexes = GetIntersection(item.FalseIndexes, falseIndexes);
                     if (item.FalseIndexes.Length < currentLen) {

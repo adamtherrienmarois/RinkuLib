@@ -19,27 +19,27 @@ public static class QueryBuilderCommandExtensions {
         /// <summary>
         /// Executes the managed <see cref="DbCommand"/> and return the nb of affected rows.
         /// </summary>
-        public int ExecuteQuery() {
+        public int Execute() {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = builder.Command;
             cmd.CommandText = command.QueryText.Parse(vars);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQuery(command, false);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, false);
+                return cmd.Execute(command, false);
+            return cmd.Execute<NoNeedToCache>(default, false);
         }
         /// <summary>
         /// Executes the managed <see cref="DbCommand"/> and return the nb of affected rows.
         /// </summary>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(CancellationToken ct = default) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = builder.Command;
             cmd.CommandText = command.QueryText.Parse(vars);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQueryAsync(command, false, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, false, ct);
+                return cmd.ExecuteAsync(command, false, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, false, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -173,27 +173,27 @@ public static class QueryBuilderCommandExtensions {
         /// <summary>
         /// Executes the managed <see cref="IDbCommand"/> and return the nb of affected rows.
         /// </summary>
-        public int ExecuteQuery() {
+        public int Execute() {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = builder.Command;
             cmd.CommandText = command.QueryText.Parse(vars);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQuery(command, false);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, false);
+                return cmd.Execute(command, false);
+            return cmd.Execute<NoNeedToCache>(default, false);
         }
         /// <summary>
         /// Executes the managed <see cref="IDbCommand"/> and return the nb of affected rows.
         /// </summary>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(CancellationToken ct = default) {
             var vars = builder.Variables;
             var command = builder.QueryCommand;
             var cmd = builder.Command;
             cmd.CommandText = command.QueryText.Parse(vars);
             if (command.NeedToCache(vars))
-                return cmd.ExecuteQueryAsync(command, false, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, false, ct);
+                return cmd.ExecuteAsync(command, false, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, false, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="IDbCommand"/>.

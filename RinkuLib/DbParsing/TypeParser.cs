@@ -106,7 +106,7 @@ public static class TypeParser<T> {
     public static Func<DbDataReader, T> GetParserFunc(ref ColumnInfo[] cols, out CommandBehavior defaultBehavior, INullColHandler? nullColHandler = null) {
         lock (TypeParsingInfo.WriteLock) {
             for (int i = 0; i < ReadingInfos.Count; i++) {
-                if (cols.Equal(ReadingInfos[i].Schema)) {
+                if (cols.EquivalentTo(ReadingInfos[i].Schema)) {
                     var rdInfo = ReadingInfos[i];
                     cols = rdInfo.Schema;
                     defaultBehavior = rdInfo.DefaultBehavior;

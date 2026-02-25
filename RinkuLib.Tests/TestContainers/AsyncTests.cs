@@ -165,7 +165,7 @@ public class AsyncTests(AsyncTestsFixture Fixture) : IClassFixture<AsyncTestsFix
     [Fact]
     public async Task TestExecuteAsync() {
         using var cnn = Fixture.GetConnection();
-        var val = await Fixture.DeclareVar.ExecuteQueryAsync(cnn, new { id = 1 }, ct: TestContext.Current.CancellationToken);
+        var val = await Fixture.DeclareVar.ExecuteAsync(cnn, new { id = 1 }, ct: TestContext.Current.CancellationToken);
         Assert.Equal(1, val);
     }
 
@@ -346,19 +346,19 @@ public class AsyncTests(AsyncTestsFixture Fixture) : IClassFixture<AsyncTestsFix
 
     private async Task LiteralReplacement(DbConnection conn) {
         try {
-            await Fixture.DropTableLiteral.ExecuteQueryAsync(conn, ct: TestContext.Current.CancellationToken);
+            await Fixture.DropTableLiteral.ExecuteAsync(conn, ct: TestContext.Current.CancellationToken);
         }
         catch {
             //don't care
         }
-        await Fixture.CreateTableLiteral.ExecuteQueryAsync(conn, ct: TestContext.Current.CancellationToken);
+        await Fixture.CreateTableLiteral.ExecuteAsync(conn, ct: TestContext.Current.CancellationToken);
         var builder = Fixture.InsertInLiteral.StartBuilder(conn.CreateCommand());
         builder.UseWith(new { id = 123, foo = 456 });
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         builder.UseWith(new { id = 1, foo = 2 });
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         builder.UseWith(new { id = 3, foo = 4 });
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         var count = (await Fixture.SelectCountLiteral.QueryAllBufferedAsync<int>(conn, new { foo = 123 }, ct: TestContext.Current.CancellationToken)).Single();
         Assert.Equal(1, count);
         var sum = (await Fixture.SelectSumLiteral.QueryAllBufferedAsync<int>(conn, ct: TestContext.Current.CancellationToken)).Single();
@@ -370,14 +370,14 @@ public class AsyncTests(AsyncTestsFixture Fixture) : IClassFixture<AsyncTestsFix
 
         using var cnn = Fixture.GetConnection();
         await cnn.OpenAsync(TestContext.Current.CancellationToken);
-        await Fixture.CreateTableLiteralIn.ExecuteQueryAsync(cnn, ct: TestContext.Current.CancellationToken);
+        await Fixture.CreateTableLiteralIn.ExecuteAsync(cnn, ct: TestContext.Current.CancellationToken);
         var builder = Fixture.InsertInLiteralin.StartBuilder(cnn.CreateCommand());
         builder.Use("@id", 1);
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         builder.Use("@id", 2);
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         builder.Use("@id", 3);
-        await builder.ExecuteQueryAsync(ct: TestContext.Current.CancellationToken);
+        await builder.ExecuteAsync(ct: TestContext.Current.CancellationToken);
         var count = (await Fixture.SelectCountLiteralWithIn.QueryAllBufferedAsync<int>(cnn,
             new { ids = new[] { 1, 3, 4 } }, ct: TestContext.Current.CancellationToken)).Single();
         Assert.Equal(2, count);

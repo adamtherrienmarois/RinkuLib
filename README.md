@@ -47,7 +47,7 @@ In truth, originaly it was meant as an extensions to `Dapper`, but the blueprint
 
 2.  **State Definition (`QueryBuilder`):** A temporary struct. You create this for every database call to hold your specific parameters and true conditions. It acts as the bridge between your C# data and the command's blueprint.
 
-3.  **Execution (`QueryX` methods):** The DB call using methods (such as `QueryAllAsync`, `QueryOne`, etc.). The engine takes the blueprint from Step 1 and the data from Step 2 to generate the finalized SQL and create the complete `DbCommand`. It then find the mots apropriate mapping function between the schema and the type.
+3.  **Execution (`QueryX` / `ExecuteX` methods):** The DB call using methods (such as `QueryAllAsync`, `QueryOne`, `Execute`, etc.). The engine takes the blueprint from Step 1 and the data from Step 2 to generate the finalized SQL and create the complete `DbCommand`. It then find the mots apropriate mapping function between the schema and the type.
 
 ---
 
@@ -56,32 +56,38 @@ In truth, originaly it was meant as an extensions to `Dapper`, but the blueprint
 | Feature Comparison | Mean | Ratio | Allocated | Alloc Ratio |
 | --- | --- | --- | --- | --- |
 | **1. Single Row (Sync)** |  |  |  |  |
-| Rinku QueryOne | 1,163.3 us | 1.93 | 3.43 KB | 0.98 |
-| Dapper QueryFirstOrDefault | 604.6 us | 1.00 | 3.51 KB | 1.00 |
+| Rinku QueryOne | 616.8 us | 0.98 | 3.07 KB | 0.84 |
+| Dapper QueryFirstOrDefault | 630.3 us | 1.00 | 3.66 KB | 1.00 |
 | **2. Single Row (Async)** |  |  |  |  |
-| Rinku QueryOneAsync | 1,214.7 us | 1.88 | 5.11 KB | 0.94 |
-| Dapper QueryFirstOrDefaultAsync | 647.7 us | 1.00 | 5.46 KB | 1.00 |
-| **3. Streaming (Async)** |  |  |  |  |
-| Rinku QueryAllAsync | 750.1 us | 0.99 | **20.02 KB** | **0.80** |
-| Dapper QueryUnbufferedAsync | 760.1 us | 1.00 | 24.87 KB | 1.00 |
-| **4. Buffered (Async)** |  |  |  |  |
-| Rinku QueryAllBufferedAsync | 774.0 us | 1.02 | **19.76 KB** | **0.80** |
-| Dapper QueryAsync (Buffered) | 762.1 us | 1.00 | 24.64 KB | 1.00 |
-| **5. Dynamic Objects** |  |  |  |  |
-| Rinku QueryOne\<DynaObject\> | 1,232.9 us | 1.93 | 5.23 KB | 0.93 |
-| Dapper QueryFirstOrDefault\<dynamic\> | 638.3 us | 1.00 | 5.61 KB | 1.00 |
-| **6. Complex Mapping (Nested)** |  |  |  |  |
-| Rinku QueryAllBufferedAsync\<Product\> | 650.6 us | 1.00 | **5.81 KB** | **0.95** |
-| Dapper QueryAsync\<Product, Category, Product\> | 652.6 us | 1.00 | 6.10 KB | 1.00 |
-| **7. Command Execution (Sync)** |  |  |  |  |
-| Rinku ExecuteQuery | 1,747.4 us | 1.00 | 2.06 KB | 0.95 |
-| Dapper Execute | 1,741.1 us | 1.00 | 2.18 KB | 1.00 |
-| **8. Command Execution (Async)** |  |  |  |  |
-| Rinku ExecuteQueryAsync | **1,773.7 us** | **0.95** | 3.67 KB | 0.97 |
-| Dapper ExecuteAsync | 1,883.8 us | 1.00 | 3.80 KB | 1.00 |
-| **9. Collection Params (IN)** |  |  |  |  |
-| Rinku (@ids_X) | 693.9 us | 1.01 | **7.29 KB** | **0.91** |
-| Dapper @ids | 687.4 us | 1.00 | 8.04 KB | 1.00 |
+| Rinku QueryOneAsync | 657.3 us | 1.01 | 4.73 KB | 0.84 |
+| Dapper QueryFirstOrDefaultAsync | 650.7 us | 1.00 | 5.61 KB | 1.00 |
+| **3. Streaming (Sync)** |  |  |  |  |
+| Rinku QueryAll | 719.5 us | 1.02 | 15.48 KB | 0.74 |
+| Dapper Query(buffered:false) | 706.4 us | 1.00 | 20.84 KB | 1.00 |
+| **4. Buffered (Sync)** |  |  |  |  |
+| Rinku QueryAllBuffered | 704.7 us | 0.97 | 17.52 KB | 0.76 |
+| Dapper Query.AsList | 726.5 us | 1.00 | 22.98 KB | 1.00 |
+| **5. Streaming (Async)** |  |  |  |  |
+| Rinku QueryAllAsync | 778.8 us | 0.99 | 17.56 KB | 0.77 |
+| Dapper QueryUnbufferedAsync | 788.9 us | 1.00 | 22.87 KB | 1.00 |
+| **6. Buffered (Async)** |  |  |  |  |
+| Rinku QueryAllBufferedAsync | 776.7 us | 0.99 | 19.45 KB | 0.78 |
+| Dapper QueryAsync.AsList | 785.8 us | 1.00 | 24.79 KB | 1.00 |
+| **7. Dynamic Objects** |  |  |  |  |
+| Rinku QueryOne\<DynaObject\> | 657.9 us | 0.98 | 4.87 KB | 0.84 |
+| Dapper QueryFirstOrDefault\<dynamic\> | 669.0 us | 1.00 | 5.77 KB | 1.00 |
+| **8. Complex Mapping (Nested)** |  |  |  |  |
+| Rinku QueryAllBufferedAsync\<Product\> | 683.3 us | 1.02 | 5.51 KB | 0.88 |
+| Dapper QueryAsync\<Product, Category, Product\> | 670.8 us | 1.00 | 6.25 KB | 1.00 |
+| **9. Command Execution (Sync)** |  |  |  |  |
+| Rinku Execute | 1,807.5 us | 1.00 | 1.76 KB | 0.74 |
+| Dapper Execute | 1,807.3 us | 1.00 | 2.39 KB | 1.00 |
+| **10. Command Execution (Async)** |  |  |  |  |
+| Rinku ExecuteAsync | 1,896.3 us | 0.97 | 3.37 KB | 0.85 |
+| Dapper ExecuteAsync | 1,966.2 us | 1.00 | 3.95 KB | 1.00 |
+| **11. Collection Params (IN)** |  |  |  |  |
+| Rinku (@ids_X) | 692.9 us | 1.00 | 6.94 KB | 0.87 |
+| Dapper @ids | 696.3 us | 1.00 | 8.02 KB | 1.00 |
 
 ---
 
@@ -155,7 +161,7 @@ var builder = userCmd.StartBuilder(sqlCmd);
 
 foreach(var val in dataList) {
     builder.Use("@val", val);
-    builder.ExecuteQuery(cnn); // Reuses the internal command object
+    builder.Execute(cnn); // Reuses the internal command object
 }
 ```
 #### One step building
@@ -186,9 +192,11 @@ The `QueryX` extension methods handle the entire database "trip." They generate 
 
 | Goal | Method | Sync Return | Async Return |
 | --- | --- | --- | --- |
-| **Update/Delete/Insert** | `ExecuteQuery` | `int` | `Task<int>` |
+| **Update/Delete/Insert** | `Execute` | `int` | `Task<int>` |
 | **Fetch Single Row** | `QueryOne<T>` | `T?` | `Task<T?>` |
 | **Stream Multiple Rows** | `QueryAll<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
+| **Get Reader** | `ExecuteReader` | `DbDataReader` | `Task<DbDataReader>` |
+| **Get MultiReader** | `ExecuteMultiReader` | `MultiReader` | `Task<MultiReader>` |
 
 ```csharp
 var user = builder.QueryOne<User>(cnn);
@@ -197,7 +205,7 @@ var (user, supervisor) = await builder.QueryOneAsync<(User, Supervisor)>(cnn);
 var cboItems = await builder.QueryAllAsync<KeyValuePair<int, string>>(cnn, null, null, ct);
 var id = builder.QueryOne<int>(cnn);
 var names = await builder.QueryAllAsync<string>(cnn);
-var nbAffected = builder.ExecuteQuery(cnn, trans);
+var nbAffected = builder.Execute(cnn, trans);
 ```
 
 All builder methods use a consistent signature for managing the database context:
@@ -219,9 +227,11 @@ The same extensions are provided directly on the the `DbCommand` (there is also 
 
 | Goal | Method | Sync Return | Async Return |
 | --- | --- | --- | --- |
-| **Update/Delete/Insert** | `ExecuteQuery` | `int` | `Task<int>` |
+| **Update/Delete/Insert** | `Execute` | `int` | `Task<int>` |
 | **Fetch Single Row** | `QueryOne<T>` | `T?` | `Task<T?>` |
 | **Stream Multiple Rows** | `QueryAll<T>` | `IEnumerable<T>` | `IAsyncEnumerable<T>` |
+| **Get Reader** | `ExecuteReader` | `DbDataReader` | `Task<DbDataReader>` |
+| **Get MultiReader** | `ExecuteMultiReader` | `MultiReader` | `Task<MultiReader>` |
 
 The parameters are a bit different since the `DbCommand` should allready been properly made.
 

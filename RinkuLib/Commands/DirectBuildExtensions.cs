@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Data.Common;
-using System.Runtime.Intrinsics.X86;
 using RinkuLib.Queries;
 
 namespace RinkuLib.Commands; 
@@ -51,13 +50,13 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery(DbConnection cnn, object? parametersObj = null, DbTransaction? transaction = null, int? timeout = null) {
+        public int Execute(DbConnection cnn, object? parametersObj = null, DbTransaction? transaction = null, int? timeout = null) {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="DbCommand"/> and return the nb of affected rows.
@@ -67,15 +66,32 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(DbConnection cnn, object? parametersObj = null, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(DbConnection cnn, object? parametersObj = null, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader(DbConnection cnn, out DbCommand cmd, object? parametersObj = null, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null) {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
         /// </summary>
@@ -91,6 +107,24 @@ public static class DirectBuildExtensions {
             if (command.NeedToCache(usageMap))
                 return cmd.ExecuteReader(command, behavior);
             return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        /// <param name="ct">The fowarded cancellation token</param>
+        public Task<DbDataReader> ExecuteReaderAsync(DbConnection cnn, out DbCommand cmd, object? parametersObj = null, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReaderAsync(command, behavior, ct);
+            return cmd.ExecuteReaderAsync<NoNeedToCache>(default, behavior, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -241,15 +275,15 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery(IDbConnection cnn, object? parametersObj = null, IDbTransaction? transaction = null, int? timeout = null) {
+        public int Execute(IDbConnection cnn, object? parametersObj = null, IDbTransaction? transaction = null, int? timeout = null) {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQuery(c, parametersObj, t, timeout);
+                return command.Execute(c, parametersObj, t, timeout);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="IDbCommand"/> and return the nb of affected rows.
@@ -259,17 +293,34 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync(IDbConnection cnn, object? parametersObj = null, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
+        public Task<int> ExecuteAsync(IDbConnection cnn, object? parametersObj = null, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQueryAsync(c, parametersObj, t, timeout, ct);
+                return command.ExecuteAsync(c, parametersObj, t, timeout, ct);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="IDbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader(IDbConnection cnn, out IDbCommand cmd, object? parametersObj = null, CommandBehavior behavior = default, IDbTransaction? transaction = null, int? timeout = null) {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="IDbCommand"/>.
         /// </summary>
@@ -416,13 +467,13 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery<TObj>(DbConnection cnn, TObj parametersObj, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+        public int Execute<TObj>(DbConnection cnn, TObj parametersObj, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="DbCommand"/> and return the nb of affected rows.
@@ -432,15 +483,32 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync<TObj>(DbConnection cnn, TObj parametersObj, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+        public Task<int> ExecuteAsync<TObj>(DbConnection cnn, TObj parametersObj, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader<TObj>(DbConnection cnn, out DbCommand cmd, TObj parametersObj, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
         /// </summary>
@@ -456,6 +524,24 @@ public static class DirectBuildExtensions {
             if (command.NeedToCache(usageMap))
                 return cmd.ExecuteReader(command, behavior);
             return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        /// <param name="ct">The fowarded cancellation token</param>
+        public Task<DbDataReader> ExecuteReaderAsync<TObj>(DbConnection cnn, out DbCommand cmd, TObj parametersObj, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReaderAsync(command, behavior, ct);
+            return cmd.ExecuteReaderAsync<NoNeedToCache>(default, behavior, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -607,15 +693,15 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery<TObj>(IDbConnection cnn, TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+        public int Execute<TObj>(IDbConnection cnn, TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQuery<TObj>(c, parametersObj, t, timeout);
+                return command.Execute<TObj>(c, parametersObj, t, timeout);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="IDbCommand"/> and return the nb of affected rows.
@@ -625,17 +711,34 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync<TObj>(IDbConnection cnn, TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+        public Task<int> ExecuteAsync<TObj>(IDbConnection cnn, TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQueryAsync<TObj>(c, parametersObj, t, timeout, ct);
+                return command.ExecuteAsync<TObj>(c, parametersObj, t, timeout, ct);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="IDbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader<TObj>(IDbConnection cnn, out IDbCommand cmd, TObj parametersObj, CommandBehavior behavior = default, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="IDbCommand"/>.
         /// </summary>
@@ -782,13 +885,13 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery<TObj>(DbConnection cnn, ref TObj parametersObj, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+        public int Execute<TObj>(DbConnection cnn, ref TObj parametersObj, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, ref parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="DbCommand"/> and return the nb of affected rows.
@@ -798,15 +901,32 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync<TObj>(DbConnection cnn, ref TObj parametersObj, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+        public Task<int> ExecuteAsync<TObj>(DbConnection cnn, ref TObj parametersObj, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, ref parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader<TObj>(DbConnection cnn, out DbCommand cmd, ref TObj parametersObj, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, ref parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
         /// </summary>
@@ -822,6 +942,24 @@ public static class DirectBuildExtensions {
             if (command.NeedToCache(usageMap))
                 return cmd.ExecuteReader(command, behavior);
             return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
+        /// <summary>
+        /// Executes the reader of the <see cref="DbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="DbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        /// <param name="ct">The fowarded cancellation token</param>
+        public Task<DbDataReader> ExecuteReaderAsync<TObj>(DbConnection cnn, out DbCommand cmd, ref TObj parametersObj, CommandBehavior behavior = default, DbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, ref parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReaderAsync(command, behavior, ct);
+            return cmd.ExecuteReaderAsync<NoNeedToCache>(default, behavior, ct);
         }
         /// <summary>
         /// Executes the reader of the <see cref="DbCommand"/>.
@@ -972,15 +1110,15 @@ public static class DirectBuildExtensions {
         /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
-        public int ExecuteQuery<TObj>(IDbConnection cnn, ref TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+        public int Execute<TObj>(IDbConnection cnn, ref TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQuery<TObj>(c, ref parametersObj, t, timeout);
+                return command.Execute<TObj>(c, ref parametersObj, t, timeout);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, ref parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQuery(command, true);
-            return cmd.ExecuteQuery<NoNeedToCache>(default, true);
+                return cmd.Execute(command, true);
+            return cmd.Execute<NoNeedToCache>(default, true);
         }
         /// <summary>
         /// Executes a <see cref="IDbCommand"/> and return the nb of affected rows.
@@ -990,17 +1128,34 @@ public static class DirectBuildExtensions {
         /// <param name="transaction">The transaction to execute on</param>
         /// <param name="timeout">The timeout for the command</param>
         /// <param name="ct">The fowarded cancellation token</param>
-        public Task<int> ExecuteQueryAsync<TObj>(IDbConnection cnn, ref TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
+        public Task<int> ExecuteAsync<TObj>(IDbConnection cnn, ref TObj parametersObj, IDbTransaction? transaction = null, int? timeout = null, CancellationToken ct = default) where TObj : notnull {
             if (cnn is DbConnection c && transaction is DbTransaction t)
-                return command.ExecuteQueryAsync<TObj>(c, ref parametersObj, t, timeout, ct);
+                return command.ExecuteAsync<TObj>(c, ref parametersObj, t, timeout, ct);
             var cmd = cnn.GetCommand(transaction, timeout);
             Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
             command.SetCommand(cmd, ref parametersObj, usageMap);
             if (command.NeedToCache(usageMap))
-                return cmd.ExecuteQueryAsync(command, true, ct);
-            return cmd.ExecuteQueryAsync<NoNeedToCache>(default, true, ct);
+                return cmd.ExecuteAsync(command, true, ct);
+            return cmd.ExecuteAsync<NoNeedToCache>(default, true, ct);
         }
 
+        /// <summary>
+        /// Executes the reader of the <see cref="IDbCommand"/>.
+        /// </summary>
+        /// <param name="cnn">The connection to execute on</param>
+        /// <param name="cmd">The command associated with the reader</param>
+        /// <param name="parametersObj">The current state object for the <see cref="IDbCommand"/> creation</param>
+        /// <param name="behavior">The behavior to use for the reader</param>
+        /// <param name="transaction">The transaction to execute on</param>
+        /// <param name="timeout">The timeout for the command</param>
+        public DbDataReader ExecuteReader<TObj>(IDbConnection cnn, out IDbCommand cmd, ref TObj parametersObj, CommandBehavior behavior = default, IDbTransaction? transaction = null, int? timeout = null) where TObj : notnull {
+            cmd = cnn.GetCommand(transaction, timeout);
+            Span<bool> usageMap = stackalloc bool[command.Mapper.Count];
+            command.SetCommand(cmd, ref parametersObj, usageMap);
+            if (command.NeedToCache(usageMap))
+                return cmd.ExecuteReader(command, behavior);
+            return cmd.ExecuteReader<NoNeedToCache>(default, behavior);
+        }
         /// <summary>
         /// Executes the reader of the <see cref="IDbCommand"/>.
         /// </summary>
